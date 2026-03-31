@@ -26,6 +26,7 @@ echo "目标: $HOST"
 echo "版本: $VERSION"
 echo "远程 Shell: $REMOTE_SHELL → $SHELL_CMD"
 echo "飞书: ${FEISHU_APPID:+已配置}未配置"
+echo "总步骤: 10 步"
 echo ""
 
 # 1. SSH 连接测试
@@ -94,8 +95,18 @@ else
     echo "  跳过（飞书插件未安装）"
 fi
 
-# 9. Gateway 重启与验证
-echo "[9/9] Gateway 重启与验证..."
+# 9. 检测并设置 gateway.mode（全新环境必须，否则 gateway start 被拦截）
+echo "[9/10] 检测并设置 gateway.mode..."
+GW_MODE=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get gateway.mode 2>/dev/null'" 2>/dev/null || echo "")
+if [[ -z "$GW_MODE" ]] || [[ "$GW_MODE" == "null" ]]; then
+    echo "  gateway.mode 未设置，自动设为 local..."
+    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set gateway.mode local' 2>&1 | grep -v "^Warning" | tail -1"
+else
+    echo "  gateway.mode 已为: $GW_MODE"
+fi
+
+# 10. Gateway 重启与验证
+echo "[10/10] Gateway 重启与验证..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw gateway restart' 2>&1 | tail -3"
 sleep 8
 GW_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw gateway status 2>&1 | grep -E \"RPC probe.*ok|Runtime.*running\"" 2>/dev/null | head -1 || echo "检查失败")
