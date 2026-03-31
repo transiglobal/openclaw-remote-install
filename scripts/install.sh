@@ -119,6 +119,8 @@ WS_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'tail -10 /tmp/openclaw/opencla
 echo "  Gateway: $GW_STATUS"
 echo "  WebSocket: $WS_STATUS"
 
+
+
 # 完成后还原 npm 国内源
 echo ""
 echo "=== 还原 npm 国内源 ==="
@@ -145,4 +147,5 @@ echo "第二步 - 安装飞书插件："
 echo "  npx -y @larksuite/openclaw-lark install"
 echo "  （用飞书 App 扫码授权）"
 echo ""
-echo "完成后飞书机器人即可使用。"
+echo "完成后告知我（零贰），我来执行飞书优化配置 + 重启验证。"
+echo ""
