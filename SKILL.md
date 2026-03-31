@@ -1,6 +1,6 @@
 ---
 name: openclaw-remote-install
-description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) 完成后还原 npm 国际源。**飞书插件安装需用户在自己的设备上扫码，不在自动化步骤内**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」。
+description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) 可选安装 QMD 本地搜索增强（BM25+向量搜索+重排序）；(7) 完成后还原 npm 国际源。**飞书插件安装需用户在自己的设备上扫码，不在自动化步骤内**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」「装QMD」。
 ---
 
 # openclaw-remote-install
@@ -31,9 +31,9 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
   ↓
 ① 版本确认（用户指定？默认最新版？）
   ↓
-② SSH 连接 + 环境检测
+② QMD 确认（是否安装 QMD？）
   ↓
-③ 已安装？版本对比 → 不一致则询问用户
+③ SSH 连接 + 环境检测
   ↓
 ④ 执行安装（全自动化，无任何交互提示）
   ↓
@@ -56,7 +56,19 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
 - 是否指定版本？（未指定则安装最新版 `latest`）
 - 目标机器 IP/域名
 
-### ② SSH 连接 + 环境检测
+### ② QMD 确认
+
+询问用户是否安装 QMD（本地搜索增强，支持 BM25+向量搜索+重排序）：
+- 用户说「装 QMD」/「带 QMD」→ 安装 QMD
+- 未提及 → 不安装 QMD，保持默认内置搜索
+
+**QMD 功能说明**：
+- 本地运行，无需 API Key
+- 支持向量搜索 + 重排序，搜索质量更高
+- 可索引 workspace 外的内容
+- 首次搜索会自动下载 GGUF 模型（约 2GB）
+
+### ③ SSH 连接 + 环境检测
 
 ```bash
 # SSH 连接测试
@@ -72,7 +84,7 @@ ssh root@<HOST> 'bash -l -c "node --version"'
 ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLED"'
 ```
 
-### ③ 已安装时版本对比与询问
+### ④ 已安装时版本对比与询问
 
 如果目标机器已有 OpenClaw：
 - 提取现有版本号
@@ -89,7 +101,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
   2. 保留现有版本，跳过安装
 ```
 
-### ④ 安装执行（全自动，无交互）
+### ⑤ 安装执行（全自动，无交互）
 
 按顺序执行，全部自动化，无需用户输入。
 
@@ -100,13 +112,13 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
 步骤4: 安装/升级 openclaw
 步骤5: gateway.mode 检测与设置（首次安装自动设置 local）
 步骤6: 创建 .openclaw 必要目录
-步骤7: Gateway 配置
+步骤7: QMD 安装与配置（如用户要求）← bun + @tobilu/qmd + memory.backend=qmd
 步骤8: Gateway 重启
 ```
 
 **所有步骤全自动执行，出错则汇报给用户。**
 
-### ⑤ 完成后还原 npm 国内源
+### ⑥ 完成后还原 npm 国内源
 
 OpenClaw 安装/升级后可能将 npm 源改回国际源，必须还原：
 
@@ -114,7 +126,7 @@ OpenClaw 安装/升级后可能将 npm 源改回国际源，必须还原：
 ssh root@<HOST> 'bash -l -c "npm config set registry https://registry.npmmirror.com && npm config get registry"'
 ```
 
-### ⑥ 最终验证与报告
+### ⑦ 最终验证与报告
 
 ```bash
 # Gateway 状态
@@ -131,8 +143,9 @@ ssh root@<HOST> 'bash -l -c "npm config get registry"'
 - OpenClaw 版本
 - Gateway 运行状态
 - npm 源状态
+- QMD 状态（如已安装）
 
-### ⑦ 飞书频道绑定（用户手动执行）⭐
+### ⑧ 飞书频道绑定（用户手动执行）⭐
 
 **`openclaw onboard` 必须在飞书扫码之前完成**，用于绑定飞书频道。
 
@@ -145,7 +158,7 @@ openclaw onboard
 
 按提示选择飞书频道类型，完成频道绑定。
 
-### ⑧ 飞书插件安装（用户手动执行）⭐
+### ⑨ 飞书插件安装（用户手动执行）⭐
 
 绑定完频道后，继续扫码安装飞书插件：
 
@@ -169,6 +182,7 @@ npx -y @larksuite/openclaw-lark install
 → 安装 Node.js 22 LTS
 → npm install -g openclaw
 → gateway.mode = local
+→ （QMD 安装，如要求）
 → Gateway 重启
 → 验证
 → 告知用户手动跑飞书扫码
@@ -181,6 +195,7 @@ npx -y @larksuite/openclaw-lark install
 → 用 bash -l -c 自动加载 .bashrc
 → 验证版本
 → 升级/安装 OpenClaw
+→ （QMD 安装，如要求）
 → 验证
 → 告知用户手动跑飞书扫码
 ```
@@ -200,4 +215,16 @@ npx -y @larksuite/openclaw-lark install
 → 告知用户：在服务器上运行 npx @larksuite/openclaw-lark install
 → 用户 SSH 进服务器，跑命令，扫码
 → 飞书插件配置完成
+```
+
+### 场景E：安装时带 QMD
+
+```
+→ 用户明确要求「装 QMD」或「带 QMD」
+→ 步骤7自动安装 bun（如未安装）
+→ bun install -g @tobilu/qmd
+→ openclaw config set memory.backend qmd
+→ symlink qmd 到 /usr/local/bin
+→ Gateway 重启
+→ QMD 首次搜索会自动下载 GGUF 模型
 ```
