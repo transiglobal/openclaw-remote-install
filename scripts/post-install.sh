@@ -73,26 +73,19 @@ echo "  threadSession: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config g
 # 6. bootstrap-skills 同步
 echo ""
 echo "[6/6] bootstrap-skills 同步..."
-# 检查本地是否有 workspace
 WORKSPACE_EXISTS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD '[ -d /root/.openclaw/workspace ] && echo yes || echo no'" 2>/dev/null)
-if [[ "$WORKSPACE_EXISTS" == "yes" ]]; then
-    # 检查 workspace 是否已有 git 仓库
-    HAS_GIT=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git rev-parse --git-dir 2>/dev/null && echo yes || echo no'" 2>/dev/null)
-    if [[ "$HAS_GIT" == "yes" ]]; then
-        # 检查 remote 是否有 bootstrap-skills
-        HAS_BS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git remote -v | grep bootstrap-skills | head -1'" 2>/dev/null)
-        if [[ -z "$HAS_BS" ]]; then
-            echo "  添加 bootstrap-skills remote..."
-            ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git remote add bootstrap-skills https://eeffa2cab255f9034e033c929f58488f799e5b3e@git.moguyn.cn/transiglobal/bootstrap-skills.git 2>/dev/null || true'"
-        fi
-        echo "  同步 bootstrap-skills submodule..."
-        ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git fetch bootstrap-skills 2>&1 | tail -3 && git submodule update --init skills/bootstrap-skills 2>&1 | tail -5'" || true
-        echo "  bootstrap-skills 同步完成"
-    else
-        echo "  workspace 不是 git 仓库，跳过 bootstrap-skills 同步"
-    fi
+if [[ "$WORKSPACE_EXISTS" != "yes" ]]; then
+    echo "  workspace 目录不存在，跳过"
 else
-    echo "  workspace 目录不存在，跳过 bootstrap-skills 同步"
+    # 检查是否已有 bootstrap-skills
+    HAS_BS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD '[ -d /root/.openclaw/workspace/skills/bootstrap-skills ] && echo yes || echo no'" 2>/dev/null)
+    if [[ "$HAS_BS" == "yes" ]]; then
+        echo "  bootstrap-skills 已存在，跳过"
+    else
+        echo "  克隆 bootstrap-skills..."
+        ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'mkdir -p /root/.openclaw/workspace/skills && git clone --depth=1 https://eeffa2cab255f9034e033c929f58488f799e5b3e@git.moguyn.cn/transiglobal/bootstrap-skills.git /root/.openclaw/workspace/skills/bootstrap-skills 2>&1 | tail -5'"
+        echo "  bootstrap-skills 克隆完成"
+    fi
 fi
 
 echo ""
