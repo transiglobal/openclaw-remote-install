@@ -1,6 +1,6 @@
 ---
 name: openclaw-remote-install
-description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) 可选安装 QMD 本地搜索增强（BM25+向量搜索+重排序）；(7) 完成后还原 npm 国际源。**飞书插件安装需用户在自己的设备上扫码，不在自动化步骤内**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」「装QMD」。
+description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) QMD 本地搜索增强自动安装（BM25+向量搜索+重排序）；(7) bootstrap-skills 技能同步；(8) 完成后还原 npm 国际源。**飞书插件安装需用户在自己的设备上扫码，不在自动化步骤内**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」。
 ---
 
 # openclaw-remote-install
@@ -31,22 +31,22 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
   ↓
 ① 版本确认（用户指定？默认最新版？）
   ↓
-② QMD 确认（是否安装 QMD？）
+② SSH 连接 + 环境检测
   ↓
-③ SSH 连接 + 环境检测
+③ 执行安装（全自动化，含 QMD + bootstrap-skills）
   ↓
-④ 执行安装（全自动化，无任何交互提示）
+④ npm 源还原
   ↓
-⑤ npm 源还原
+⑤ 验证 + 总结报告
   ↓
-⑥ 验证 + 总结报告
+⑥ 飞书频道绑定：用户手动执行 openclaw onboard
   ↓
-⑦ 飞书频道绑定：用户手动执行 openclaw onboard
+⑦ 飞书插件扫码：用户手动执行 npx @larksuite/openclaw-lark install
   ↓
-⑧ 飞书插件扫码：用户手动执行 npx @larksuite/openclaw-lark install
+⑧ AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
 ```
 
-**步骤⑦⑧由用户在本地终端执行，不在 subagent 内完成。**
+**步骤⑥⑦由用户在本地终端执行，不在 subagent 内完成。**
 
 ## 详细步骤
 
@@ -56,19 +56,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
 - 是否指定版本？（未指定则安装最新版 `latest`）
 - 目标机器 IP/域名
 
-### ② QMD 确认
-
-询问用户是否安装 QMD（本地搜索增强，支持 BM25+向量搜索+重排序）：
-- 用户说「装 QMD」/「带 QMD」→ 安装 QMD
-- 未提及 → 不安装 QMD，保持默认内置搜索
-
-**QMD 功能说明**：
-- 本地运行，无需 API Key
-- 支持向量搜索 + 重排序，搜索质量更高
-- 可索引 workspace 外的内容
-- 首次搜索会自动下载 GGUF 模型（约 2GB）
-
-### ③ SSH 连接 + 环境检测
+### ② SSH 连接 + 环境检测
 
 ```bash
 # SSH 连接测试
@@ -84,7 +72,7 @@ ssh root@<HOST> 'bash -l -c "node --version"'
 ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLED"'
 ```
 
-### ④ 已安装时版本对比与询问
+### ③ 已安装时版本对比与询问
 
 如果目标机器已有 OpenClaw：
 - 提取现有版本号
@@ -101,24 +89,25 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
   2. 保留现有版本，跳过安装
 ```
 
-### ⑤ 安装执行（全自动，无交互）
+### ④ 安装执行（全自动，含 QMD）
 
-按顺序执行，全部自动化，无需用户输入。
+`install.sh` 脚本全自动执行，共 9 步：
 
 ```
 步骤1: SSH 连接测试
 步骤2: Node.js 版本检测（低于 v22 则自动升级）
 步骤3: 设置 npm 国内镜像
 步骤4: 安装/升级 openclaw
-步骤5: gateway.mode 检测与设置（首次安装自动设置 local）
-步骤6: 创建 .openclaw 必要目录
-步骤7: QMD 安装与配置（如用户要求）← bun + @tobilu/qmd + memory.backend=qmd
-步骤8: Gateway 重启
+步骤5: 验证 openclaw 版本
+步骤6: gateway.mode 检测与设置（首次安装自动设置 local）
+步骤7: QMD 安装与配置（bun + @tobilu/qmd + memory.backend=qmd）← 必选
+步骤8: Gateway 安装与启动
+步骤9: 状态验证
 ```
 
 **所有步骤全自动执行，出错则汇报给用户。**
 
-### ⑥ 完成后还原 npm 国内源
+### ⑤ 完成后还原 npm 国内源
 
 OpenClaw 安装/升级后可能将 npm 源改回国际源，必须还原：
 
@@ -126,7 +115,7 @@ OpenClaw 安装/升级后可能将 npm 源改回国际源，必须还原：
 ssh root@<HOST> 'bash -l -c "npm config set registry https://registry.npmmirror.com && npm config get registry"'
 ```
 
-### ⑦ 最终验证与报告
+### ⑥ 最终验证与报告
 
 ```bash
 # Gateway 状态
@@ -134,6 +123,9 @@ ssh root@<HOST> 'bash -l -c "systemctl --user status openclaw-gateway.service | 
 
 # 版本确认
 ssh root@<HOST> 'bash -l -c "openclaw --version"'
+
+# QMD 确认
+ssh root@<HOST> 'bash -l -c "qmd --version 2>/dev/null || bun x qmd --version"'
 
 # npm 源确认
 ssh root@<HOST> 'bash -l -c "npm config get registry"'
@@ -143,9 +135,9 @@ ssh root@<HOST> 'bash -l -c "npm config get registry"'
 - OpenClaw 版本
 - Gateway 运行状态
 - npm 源状态
-- QMD 状态（如已安装）
+- QMD 版本
 
-### ⑧ 飞书频道绑定（用户手动执行）⭐
+### ⑦ 飞书频道绑定（用户手动执行）⭐
 
 **`openclaw onboard` 必须在飞书扫码之前完成**，用于绑定飞书频道。
 
@@ -158,7 +150,7 @@ openclaw onboard
 
 按提示选择飞书频道类型，完成频道绑定。
 
-### ⑨ 飞书插件安装（用户手动执行）⭐
+### ⑧ 飞书插件安装（用户手动执行）⭐
 
 绑定完频道后，扫码安装飞书插件：
 
@@ -166,27 +158,23 @@ openclaw onboard
 npx -y @larksuite/openclaw-lark install
 ```
 
-扫码完成后，继续配置四项优化（可选但推荐）：
+用飞书 App 扫码授权，完成后告知 AI（零贰）。
 
-```bash
-openclaw config set channels.feishu.streaming true
-openclaw config set channels.feishu.footer.elapsed true
-openclaw config set channels.feishu.footer.status true
-openclaw config set channels.feishu.threadSession true
-openclaw gateway restart
-```
+### ⑨ AI 执行 post-install.sh（飞书优化 + bootstrap-skills）⭐
 
-**四项优化说明**：
-- `streaming`：流式输出（打字机效果）
-- `footer.elapsed`：显示回复耗时
-- `footer.status`：显示处理状态
-- `threadSession`：启用话题会话
+用户扫码完成后，AI 自动执行 `post-install.sh`，包含：
 
-**操作流程**：
-1. SSH 登录到目标服务器
-2. 运行 `npx -y @larksuite/openclaw-lark install`，用飞书 App 扫码
-3. 扫码完成后，运行上述四项优化配置命令
-4. Gateway 自动重启，飞书配置完成
+1. **飞书四项优化配置**：
+   - `channels.feishu.streaming = true`
+   - `channels.feishu.footer.elapsed = true`
+   - `channels.feishu.footer.status = true`
+   - `channels.feishu.threadSession = true`
+
+2. **Gateway 重启 + 状态验证**
+
+3. **bootstrap-skills 同步**：
+   - 添加 `https://eeffa2cab255f9034e033c929f58488f799e5b3e@git.moguyn.cn/transiglobal/bootstrap-skills.git` remote（如未添加）
+   - `git submodule update --init skills/bootstrap-skills`
 
 ## 典型场景处理
 
@@ -196,10 +184,11 @@ openclaw gateway restart
 → 安装 Node.js 22 LTS
 → npm install -g openclaw
 → gateway.mode = local
-→ （QMD 安装，如要求）
-→ Gateway 重启
+→ QMD 自动安装（bun + @tobilu/qmd + memory.backend=qmd）
+→ Gateway 安装 + 启动
 → 验证
-→ 告知用户手动跑飞书扫码
+→ 告知用户手动跑飞书 onboard + 扫码
+→ AI 执行 post-install.sh
 ```
 
 ### 场景B：有 pnpm 残留，直接用 login shell 加载
@@ -209,9 +198,10 @@ openclaw gateway restart
 → 用 bash -l -c 自动加载 .bashrc
 → 验证版本
 → 升级/安装 OpenClaw
-→ （QMD 安装，如要求）
+→ QMD 自动安装
 → 验证
-→ 告知用户手动跑飞书扫码
+→ 告知用户手动跑飞书 onboard + 扫码
+→ AI 执行 post-install.sh
 ```
 
 ### 场景C：已安装同版本 OpenClaw
@@ -226,19 +216,21 @@ openclaw gateway restart
 
 ```
 → subagent 报告安装完成
-→ 告知用户：在服务器上运行 npx @larksuite/openclaw-lark install
+→ 告知用户：在服务器上运行 openclaw onboard + npx @larksuite/openclaw-lark install
 → 用户 SSH 进服务器，跑命令，扫码
+→ 用户告知完成后
+→ AI 执行 post-install.sh
 → 飞书插件配置完成
 ```
 
-### 场景E：安装时带 QMD
+### 场景E：全新机器，完整安装（含飞书 + QMD + bootstrap-skills）
 
 ```
-→ 用户明确要求「装 QMD」或「带 QMD」
-→ 步骤7自动安装 bun（如未安装）
-→ bun install -g @tobilu/qmd
-→ openclaw config set memory.backend qmd
-→ symlink qmd 到 /usr/local/bin
-→ Gateway 重启
-→ QMD 首次搜索会自动下载 GGUF 模型
+→ 用户说：在 43.134.173.17 上装 OpenClaw
+→ AI 确认版本、IP
+→ subagent 执行 install.sh（全自动，含 QMD）
+→ AI 汇报安装完成，告知用户跑飞书 onboard + 扫码
+→ 用户扫码完成后告知 AI
+→ AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
+→ 全部完成
 ```

@@ -1,12 +1,12 @@
 #!/bin/bash
-# post-install.sh - OpenClaw 安装后飞书配置脚本
+# post-install.sh - OpenClaw 安装后配置脚本
 # 用法: ./post-install.sh <HOST> [SSH_KEY]
 # 在 openclaw onboard + npx @larksuite/openclaw-lark install 完成后执行
 #
 # 包含：
 #   1. 飞书四项优化配置
-#   2. Gateway 重启
-#   3. 状态验证
+#   2. Gateway 重启 + 状态验证
+#   3. bootstrap-skills 技能同步
 
 set -e
 
@@ -25,8 +25,8 @@ echo "=== OpenClaw 飞书配置后处理 ==="
 echo "目标: $HOST"
 echo ""
 
-# 四项飞书优化配置
-echo "[1/5] 飞书优化配置..."
+# 1. 飞书四项优化配置
+echo "[1/6] 飞书优化配置..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  channels.feishu.streaming = true"
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true 2>&1 | grep -v \"^Warning\" | tail -1'"
@@ -36,19 +36,19 @@ echo "  channels.feishu.footer.status = true"
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  channels.feishu.threadSession = true"
 
-# Gateway 重启
+# 2. Gateway 重启
 echo ""
-echo "[2/5] Gateway 重启..."
+echo "[2/6] Gateway 重启..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user restart openclaw-gateway.service 2>&1 | tail -1'"
 
-# 等待启动
+# 3. 等待启动
 echo ""
-echo "[3/5] 等待 Gateway 就绪..."
+echo "[3/6] 等待 Gateway 就绪..."
 sleep 6
 
-# 验证
+# 4. 状态验证
 echo ""
-echo "[4/5] 状态验证..."
+echo "[4/6] 状态验证..."
 GW_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user status openclaw-gateway.service 2>&1 | grep -E \"Active: active.*running\"" 2>/dev/null || echo "未运行")
 echo "  Gateway: $GW_STATUS"
 
@@ -62,13 +62,40 @@ else
     echo "  WebSocket: $WS_READY"
 fi
 
+# 5. 配置确认
 echo ""
-echo "[5/5] 配置确认..."
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'echo \"  streaming: \$(openclaw config get channels.feishu.streaming)\"'"
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'echo \"  footer.elapsed: \$(openclaw config get channels.feishu.footer.elapsed)\"'"
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'echo \"  footer.status: \$(openclaw config get channels.feishu.footer.status)\"'"
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'echo \"  threadSession: \$(openclaw config get channels.feishu.threadSession)\"'"
+echo "[5/6] 配置确认..."
+echo "  streaming: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.streaming'" 2>/dev/null)"
+echo "  footer.elapsed: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.elapsed'" 2>/dev/null)"
+echo "  footer.status: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.status'" 2>/dev/null)"
+echo "  threadSession: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.threadSession'" 2>/dev/null)"
+
+# 6. bootstrap-skills 同步
+echo ""
+echo "[6/6] bootstrap-skills 同步..."
+# 检查本地是否有 workspace
+WORKSPACE_EXISTS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD '[ -d /root/.openclaw/workspace ] && echo yes || echo no'" 2>/dev/null)
+if [[ "$WORKSPACE_EXISTS" == "yes" ]]; then
+    # 检查 workspace 是否已有 git 仓库
+    HAS_GIT=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git rev-parse --git-dir 2>/dev/null && echo yes || echo no'" 2>/dev/null)
+    if [[ "$HAS_GIT" == "yes" ]]; then
+        # 检查 remote 是否有 bootstrap-skills
+        HAS_BS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git remote -v | grep bootstrap-skills | head -1'" 2>/dev/null)
+        if [[ -z "$HAS_BS" ]]; then
+            echo "  添加 bootstrap-skills remote..."
+            ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git remote add bootstrap-skills https://eeffa2cab255f9034e033c929f58488f799e5b3e@git.moguyn.cn/transiglobal/bootstrap-skills.git 2>/dev/null || true'"
+        fi
+        echo "  同步 bootstrap-skills submodule..."
+        ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'cd /root/.openclaw/workspace && git fetch bootstrap-skills 2>&1 | tail -3 && git submodule update --init skills/bootstrap-skills 2>&1 | tail -5'" || true
+        echo "  bootstrap-skills 同步完成"
+    else
+        echo "  workspace 不是 git 仓库，跳过 bootstrap-skills 同步"
+    fi
+else
+    echo "  workspace 目录不存在，跳过 bootstrap-skills 同步"
+fi
 
 echo ""
 echo "=== 配置完成 ==="
 echo "飞书机器人已就绪，可正常收发消息。"
+echo "bootstrap-skills 技能已同步。"
