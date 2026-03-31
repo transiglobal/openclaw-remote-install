@@ -109,94 +109,76 @@ ssh root@<HOST> 'bash -l -c "which openclaw 2>/dev/null || echo not_found"'
 
 > ⚠️ 禁止跳过此步骤。飞书插件和配置是安装流程的必要组成部分。
 
-### ⑤ 安装执行（subagent + 30s 轮询）
+### ⑤ 安装执行（subagent + 实时监控）
 
-通过 `sessions_spawn` 启动 subagent 执行安装，主线程每 30s 检查一次状态。
+通过 `sessions_spawn` 启动 subagent 执行安装，**分步执行 + 实时监控**，特别是在飞书插件安装步骤。
 
 #### subagent 任务内容（全部使用 login shell）
 
-```bash
-# ============================================================
-# 在远程机器 root@<HOST> 上执行（全部用 bash -l -c）
-# ============================================================
+subagent 按以下顺序分步执行，**每步完成后立即汇报**（不等全部跑完）：
 
-# 0. 前置：确保使用 login shell
-SHELL_CMD="bash -l -c"
-
-# 1. 设置 npm 国内镜像（login shell，确保环境完整）
-ssh root@<HOST> "$SHELL_CMD" 'npm config set registry https://registry.npmmirror.com && npm config get registry'
-
-# 2. Node.js 升级（如需要，v18 → v22）
-ssh root@<HOST> "$SHELL_CMD" 'curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs && node --version'
-
-# 3. 安装 openclaw（login shell，自动使用 .bashrc 中的 pnpm 环境）
-# 方式A: npm 安装
-ssh root@<HOST> "$SHELL_CMD" "npm install -g openclaw@$VERSION"
-# 方式B: 如果已有 pnpm openclaw，验证版本即可
-ssh root@<HOST> "$SHELL_CMD" 'openclaw --version'
-
-# 4. 配置飞书（如用户提供 appId/appSecret）
-if [ -n "$FEISHU_APPID" ]; then
-    ssh root@<HOST> "$SHELL_CMD" "openclaw config set channels.feishu.appId $FEISHU_APPID"
-    ssh root@<HOST> "$SHELL_CMD" "openclaw config set channels.feishu.appSecret $FEISHU_APPSECRET"
-    ssh root@<HOST> "$SHELL_CMD" "openclaw config set channels.feishu.enabled true"
-fi
-
-# 5. 安装/更新飞书插件
-ssh root@<HOST> "$SHELL_CMD" 'npx -y @larksuite/openclaw-lark install'
-# 或更新：ssh root@<HOST> "$SHELL_CMD" 'npx -y @larksuite/openclaw-lark update'
-
-# 6. 飞书优化配置
-ssh root@<HOST> "$SHELL_CMD" 'openclaw config set channels.feishu.streaming true'
-ssh root@<HOST> "$SHELL_CMD" 'openclaw config set channels.feishu.footer.elapsed true'
-ssh root@<HOST> "$SHELL_CMD" 'openclaw config set channels.feishu.footer.status true'
-ssh root@<HOST> "$SHELL_CMD" 'openclaw config set channels.feishu.threadSession true'
-
-# 7. 重启 gateway
-ssh root@<HOST> "$SHELL_CMD" 'openclaw gateway restart'
-sleep 8
-
-# 8. 验证
-ssh root@<HOST> "$SHELL_CMD" 'openclaw gateway status'
-ssh root@<HOST> "$SHELL_CMD" 'tail -20 /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log | grep -E "ws client ready|feishu|error"'
+```
+步骤1: SSH 连接测试
+步骤2: Node.js 版本检测
+步骤3: 设置 npm 国内镜像
+步骤4: 安装/升级 openclaw
+步骤5: gateway.mode 检测与设置
+步骤6: 配置飞书（appId/appSecret）
+步骤7: 安装飞书插件 ← 关键步骤，需要 PTY
+步骤8: 飞书优化配置
+步骤9: Gateway 重启
+步骤10: 还原 npm 源
+步骤11: 最终验证
 ```
 
-#### Shell 检测（自动适配 bash/zsh）
+**关键：步骤7（飞书插件安装）必须用 PTY 执行**
 
-```bash
-# 检测远程机器的默认 shell
-REMOTE_SHELL=$(ssh root@<HOST> 'echo $SHELL' | xargs basename)
-echo "Remote shell: $REMOTE_SHELL"
+飞书插件 `npx -y @larksuite/openclaw-lark install` 运行时会弹出交互询问：
+- 扫码授权（显示 QR code URL 或图片）
+- 命令行交互提示（选择机器人、确认操作等）
 
-if [[ "$REMOTE_SHELL" == "zsh" ]]; then
-    SHELL_CMD="zsh -l -c"
-else
-    SHELL_CMD="bash -l -c"
-fi
+**PTY 执行方式**（使用 `exec` 的 `pty: true` 参数）：
+
+```javascript
+// 安装飞书插件（PTY 模式，实时捕获交互提示）
+exec({
+  command: `ssh -tt -i $SSH_KEY -o StrictHostKeyChecking=no root@$HOST '$SHELL_CMD "npx -y @larksuite/openclaw-lark install 2>&1"'`,
+  pty: true,
+  timeout: 300,
+  yieldMs: 280000  // 4分46秒后强制结束 SSH
+})
 ```
 
-#### 30s 轮询监控
+`-tt` 强制分配 PTY，确保插件的交互提示能实时回传。
 
-主线程在启动 subagent 后，每 30s 查询一次状态：
+#### 实时监控机制（替代 30s 轮询）
+
+**主线程在启动 subagent 后，每 10s 检查一次 subagent 输出**：
 
 ```bash
-sessions_history <subagent_session_key> --limit 5 --includeTools false
+sessions_history <subagent_session_key> --limit 3 --includeTools false
 ```
 
-**检测到用户交互提示**：立即停止轮询，将完整提示返回给用户，等待用户操作后继续。
+**检测到以下关键词时，立即将提示转发给用户**：
+- "scan" / "QR" / "qrcode" / "扫码"
+- "auth" / "authorize" / "授权"
+- "press enter" / "press any key" / "按任意键"
+- "password"（飞书相关）
+- "select" / "choose"（选择提示）
+- emoji QR code 图片（直接转发给用户）
 
-**检测到 subagent 完成**：进入下一步。
+**转发格式**：
+```
+🔔 飞书插件安装需要您的操作：
+[插件输出的完整提示]
+请扫描上方二维码，或回复您的选择
+```
 
-**检测到错误/中断**：尝试修复或重新启动 subagent。
+**等待用户回复后**，通过 `sessions_send` 继续 subagent，或手动执行后续步骤。
 
-#### 飞书插件安装的交互处理
+#### 非交互场景（如已配置 appId/appSecret）
 
-飞书插件 `npx -y @larksuite/openclaw-lark install` 可能会触发：
-- **QR 码扫码授权**：将二维码图片或 URL 返回给用户
-- **命令行交互提示**：停止轮询，完整返回提示内容
-
-当 subagent 输出包含 "scan" / "QR" / "扫码" / "auth" / "password" 等关键词时：
-→ 立即返回给用户，等待扫码或确认后继续
+如果飞书插件安装时**没有弹出任何交互提示**（已配置机器人信息），则自动继续下一步，无需用户介入。
 
 ### ⑥ 完成后还原 npm 国内源
 
