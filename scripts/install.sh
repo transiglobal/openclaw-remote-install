@@ -67,33 +67,27 @@ echo "[6/9] 验证 openclaw..."
 OPENCLAW_VER_FINAL=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw --version'")
 echo "  版本: $OPENCLAW_VER_FINAL"
 
-# 7. 飞书插件安装
-echo "[7/9] 飞书插件安装..."
-FEISHU_INSTALLED=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw plugins list 2>/dev/null | grep -c openclaw-lark'" || echo "0")
-if [[ -n "$FEISHU_APPID" ]] && [[ -n "$FEISHU_APPSECRET" ]]; then
-    echo "  配置 appId: $FEISHU_APPID"
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.appId $FEISHU_APPID\""
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.appSecret $FEISHU_APPSECRET\""
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.enabled true\""
-    echo "  安装飞书插件..."
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npx -y @larksuite/openclaw-lark install 2>&1 | tail -5'"
-elif [[ "$FEISHU_INSTALLED" -gt 0 ]]; then
-    echo "  飞书插件已存在，跳过安装"
-else
-    echo "  跳过（未提供飞书配置，且无已有插件）"
+# 7. 飞书插件安装（必须提供 appId/appSecret）
+echo "[7/10] 飞书插件安装..."
+if [[ -z "$FEISHU_APPID" ]] || [[ -z "$FEISHU_APPSECRET" ]]; then
+    echo "  错误：未提供飞书配置（appId/appSecret）"
+    echo "  请提供后再执行安装："
+    echo "  用法: $0 <HOST> <SSH_KEY> <VERSION> <FEISHU_APPID> <FEISHU_APPSECRET>"
+    exit 1
 fi
+echo "  配置 appId: $FEISHU_APPID"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.appId $FEISHU_APPID\""
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.appSecret $FEISHU_APPSECRET\""
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"openclaw config set channels.feishu.enabled true\""
+echo "  安装飞书插件..."
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npx -y @larksuite/openclaw-lark install 2>&1 | tail -5'"
 
-# 8. 飞书优化配置（仅在飞书插件已安装后才设置，否则报错 must_NOT_have_additional_properties）
-echo "[8/9] 飞书优化配置..."
-FEISHU_NOW_INSTALLED=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw plugins list 2>/dev/null | grep -c openclaw-lark'" || echo "0")
-if [[ "$FEISHU_NOW_INSTALLED" -gt 0 ]] || [[ -n "$FEISHU_APPID" ]]; then
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true' 2>&1 | grep -v "^Warning" | tail -1"
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true' 2>&1 | grep -v "^Warning" | tail -1"
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.status true' 2>&1 | grep -v "^Warning" | tail -1"
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true' 2>&1 | grep -v "^Warning" | tail -1"
-else
-    echo "  跳过（飞书插件未安装）"
-fi
+# 8. 飞书优化配置
+echo "[8/10] 飞书优化配置..."
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true' 2>&1 | grep -v "^Warning" | tail -1"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true' 2>&1 | grep -v "^Warning" | tail -1"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.status true' 2>&1 | grep -v "^Warning" | tail -1"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true' 2>&1 | grep -v "^Warning" | tail -1"
 
 # 9. 检测并设置 gateway.mode（全新环境必须，否则 gateway start 被拦截）
 echo "[9/10] 检测并设置 gateway.mode..."
