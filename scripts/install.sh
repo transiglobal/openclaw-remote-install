@@ -26,7 +26,7 @@ echo "目标: $HOST"
 echo "版本: $VERSION"
 echo "QMD: ${WITH_QMD:+是}else 否"
 echo "远程 Shell: $REMOTE_SHELL → $SHELL_CMD"
-echo "总步骤: 9 步"
+echo "总步骤: 9 步（不含飞书扫码）"
 echo ""
 
 # 1. SSH 连接测试
@@ -112,7 +112,7 @@ fi
 
 # 9. Gateway 重启与验证
 echo "[9/9] Gateway 重启与验证..."
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw gateway restart' 2>&1 | tail -3"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw gateway restart 2>&1 | tail -3'"
 sleep 8
 GW_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw gateway status 2>&1 | grep -E \"RPC probe.*ok|Runtime.*running\"" 2>/dev/null | head -1 || echo "检查失败")
 WS_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'tail -10 /tmp/openclaw/openclaw-\$(date +%Y-%m-%d).log | grep '\''ws client ready'\''" 2>/dev/null || echo "未就绪")

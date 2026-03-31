@@ -160,19 +160,33 @@ openclaw onboard
 
 ### ⑨ 飞书插件安装（用户手动执行）⭐
 
-绑定完频道后，继续扫码安装飞书插件：
+绑定完频道后，扫码安装飞书插件：
 
 ```bash
 npx -y @larksuite/openclaw-lark install
 ```
 
+扫码完成后，继续配置四项优化（可选但推荐）：
+
+```bash
+openclaw config set channels.feishu.streaming true
+openclaw config set channels.feishu.footer.elapsed true
+openclaw config set channels.feishu.footer.status true
+openclaw config set channels.feishu.threadSession true
+openclaw gateway restart
+```
+
+**四项优化说明**：
+- `streaming`：流式输出（打字机效果）
+- `footer.elapsed`：显示回复耗时
+- `footer.status`：显示处理状态
+- `threadSession`：启用话题会话
+
 **操作流程**：
 1. SSH 登录到目标服务器
-2. 运行上述命令
-3. 用飞书 App 扫描终端中的 QR 码
-4. 完成后返回告知
-
-**说明**：此命令必须在目标机器的终端上运行，不能在本地运行。QR 码扫码授权需用户在飞书 App 内完成。
+2. 运行 `npx -y @larksuite/openclaw-lark install`，用飞书 App 扫码
+3. 扫码完成后，运行上述四项优化配置命令
+4. Gateway 自动重启，飞书配置完成
 
 ## 典型场景处理
 
