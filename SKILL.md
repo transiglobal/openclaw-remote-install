@@ -1,6 +1,6 @@
 ---
 name: openclaw-remote-install
-description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) QMD 本地搜索增强自动安装（BM25+向量搜索+重排序）；(7) bootstrap-skills 技能同步；(8) 完成后还原 npm 国际源。**飞书插件安装需用户在自己的设备上扫码，不在自动化步骤内**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」。
+description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) QMD 本地搜索增强自动安装（BM25+向量搜索+重排序）；(7) bootstrap-skills 技能同步；(8) 完成后还原 npm 国际源。**飞书插件安装是第7步，用户手动在服务器运行命令，安装过程会自动提示扫码，无需单独询问**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」。
 ---
 
 # openclaw-remote-install
@@ -41,12 +41,12 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
   ↓
 ⑥ 飞书频道绑定：用户手动执行 openclaw onboard
   ↓
-⑦ 飞书插件扫码：用户手动执行 npx @larksuite/openclaw-lark install
+⑦ 飞书插件安装：用户手动执行 npx @larksuite/openclaw-lark install（过程中自动提示扫码）
   ↓
 ⑧ AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
 ```
 
-**步骤⑥⑦由用户在本地终端执行，不在 subagent 内完成。**
+**步骤⑥⑦由用户在服务器终端手动执行，不在 subagent 内完成。步骤⑦安装过程会自动弹出扫码提示，无需单独引导。**
 
 ## 详细步骤
 
@@ -137,28 +137,18 @@ ssh root@<HOST> 'bash -l -c "npm config get registry"'
 - npm 源状态
 - QMD 版本
 
-### ⑦ 飞书频道绑定（用户手动执行）⭐
+### ⑦ 飞书插件安装（用户手动执行）⭐
 
-**`openclaw onboard` 必须在飞书扫码之前完成**，用于绑定飞书频道。
-
-安装完成后，告知用户执行以下命令：
+安装完成后，SSH 进服务器，直接运行安装命令（**过程中会自动提示扫码**）：
 
 ```bash
 ssh root@<HOST>
-openclaw onboard
-```
-
-按提示选择飞书频道类型，完成频道绑定。
-
-### ⑧ 飞书插件安装（用户手动执行）⭐
-
-绑定完频道后，扫码安装飞书插件：
-
-```bash
 npx -y @larksuite/openclaw-lark install
 ```
 
-用飞书 App 扫码授权，完成后告知 AI（零贰）。
+按照提示用飞书 App 扫码授权，完成后告知 AI（零贰）。
+
+> ⚠️ `openclaw onboard` 需在此步骤之前完成（步骤⑥）。
 
 ### ⑨ AI 执行 post-install.sh（飞书优化 + bootstrap-skills）⭐
 
@@ -187,7 +177,8 @@ npx -y @larksuite/openclaw-lark install
 → QMD 自动安装（bun + @tobilu/qmd + memory.backend=qmd）
 → Gateway 安装 + 启动
 → 验证
-→ 告知用户手动跑飞书 onboard + 扫码
+→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码）
+→ 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 ```
 
@@ -200,7 +191,8 @@ npx -y @larksuite/openclaw-lark install
 → 升级/安装 OpenClaw
 → QMD 自动安装
 → 验证
-→ 告知用户手动跑飞书 onboard + 扫码
+→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码）
+→ 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 ```
 
@@ -212,13 +204,14 @@ npx -y @larksuite/openclaw-lark install
 → 用户选择后执行
 ```
 
-### 场景D：安装完成，用户扫码
+### 场景D：安装完成，引导用户完成飞书绑定
 
 ```
 → subagent 报告安装完成
-→ 告知用户：在服务器上运行 openclaw onboard + npx @larksuite/openclaw-lark install
-→ 用户 SSH 进服务器，跑命令，扫码
-→ 用户告知完成后
+→ 告知用户：
+    步骤⑥ ssh root@HOST → openclaw onboard（选飞书频道类型）
+    步骤⑦ npx -y @larksuite/openclaw-lark install（过程中自动提示扫码，扫一下就完成）
+→ 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 → 飞书插件配置完成
 ```
@@ -229,7 +222,8 @@ npx -y @larksuite/openclaw-lark install
 → 用户说：在 43.134.173.17 上装 OpenClaw
 → AI 确认版本、IP
 → subagent 执行 install.sh（全自动，含 QMD）
-→ AI 汇报安装完成，告知用户跑飞书 onboard + 扫码
+→ AI 汇报安装完成，告知用户：
+    先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install，扫码即完成
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
 → 全部完成
