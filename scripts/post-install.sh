@@ -5,6 +5,7 @@
 #
 # 包含：
 #   1. 飞书四项优化配置
+#   1.5. 工具安全配置（tools.profile + tools.exec.security）
 #   2. Gateway 重启 + 状态验证
 #   3. bootstrap-skills 技能同步
 
@@ -36,19 +37,26 @@ echo "  channels.feishu.footer.status = true"
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  channels.feishu.threadSession = true"
 
+# 1.5 工具安全配置（解决 TUI exec 授权问题）
+echo "[1.5/7] 工具安全配置..."
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set tools.profile full 2>&1 | grep -v \"^Warning\" | tail -1'"
+echo "  tools.profile = full"
+ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set tools.exec.security full 2>&1 | grep -v \"^Warning\" | tail -1'"
+echo "  tools.exec.security = full"
+
 # 2. Gateway 重启
 echo ""
-echo "[2/6] Gateway 重启..."
+echo "[2/7] Gateway 重启..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user restart openclaw-gateway.service 2>&1 | tail -1'"
 
 # 3. 等待启动
 echo ""
-echo "[3/6] 等待 Gateway 就绪..."
+echo "[3/7] 等待 Gateway 就绪..."
 sleep 6
 
 # 4. 状态验证
 echo ""
-echo "[4/6] 状态验证..."
+echo "[4/7] 状态验证..."
 GW_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user status openclaw-gateway.service 2>&1 | grep -E \"Active: active.*running\"" 2>/dev/null || echo "未运行")
 echo "  Gateway: $GW_STATUS"
 
@@ -64,7 +72,7 @@ fi
 
 # 5. 配置确认
 echo ""
-echo "[5/6] 配置确认..."
+echo "[5/7] 配置确认..."
 echo "  streaming: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.streaming'" 2>/dev/null)"
 echo "  footer.elapsed: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.elapsed'" 2>/dev/null)"
 echo "  footer.status: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.status'" 2>/dev/null)"
@@ -72,7 +80,7 @@ echo "  threadSession: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config g
 
 # 6. bootstrap-skills 同步
 echo ""
-echo "[6/6] bootstrap-skills 同步..."
+echo "[6/7] bootstrap-skills 同步..."
 WORKSPACE_EXISTS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD '[ -d /root/.openclaw/workspace ] && echo yes || echo no'" 2>/dev/null)
 if [[ "$WORKSPACE_EXISTS" != "yes" ]]; then
     echo "  workspace 目录不存在，跳过"

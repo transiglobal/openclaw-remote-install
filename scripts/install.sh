@@ -7,7 +7,7 @@ set -e
 
 HOST="${1:?用法: $0 <HOST> [SSH_KEY] [VERSION]}"
 SSH_KEY="${2:-$HOME/.ssh/id_rsa_tnt}"
-VERSION="${3:-latest}"
+VERSION="${3:-2026.03.31}"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
 REMOTE_SHELL=$(ssh $SSH_OPTS root@$HOST 'echo $SHELL' 2>/dev/null | xargs basename || echo "bash")
