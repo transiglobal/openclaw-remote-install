@@ -49,11 +49,17 @@ fi
 
 # 5. 安装 openclaw
 echo "[5/9] 安装/验证 openclaw..."
-if [[ "$OPENCLAW_VER" == "OpenClaw"* ]]; then
-    echo "  已安装: $OPENCLAW_VER，跳过安装"
+INSTALLED_VER=$(echo "$OPENCLAW_VER" | grep -oP 'OpenClaw \K[0-9.]+' || true)
+if [[ "$OPENCLAW_VER" == "OpenClaw"* ]] && [[ "$INSTALLED_VER" == "$VERSION" ]]; then
+    echo "  已安装: $OPENCLAW_VER（目标版本 $VERSION），跳过"
 else
-    echo "  用 npm 安装 openclaw@$VERSION ..."
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD \"npm install -g openclaw@$VERSION 2>&1 | tail -10\""
+    if [[ -n "$INSTALLED_VER" ]]; then
+        echo "  当前: $OPENCLAW_VER → 升级到 $VERSION ..."
+    else
+        echo "  未安装 → 安装 openclaw@$VERSION ..."
+    fi
+    # 清理旧残留 + 强制重装
+    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'rm -rf ~/.nvm/versions/node/v22.22.2/lib/node_modules/.openclaw* ~/.local/share/pnpm/openclaw 2>/dev/null; npm install -g openclaw@$VERSION 2>&1 | tail -10'"
 fi
 
 # 6. 验证 openclaw
@@ -76,8 +82,9 @@ echo "[8/9] QMD 安装与配置..."
 # 8.1 安装 bun
 BUN_VER=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'bun --version 2>/dev/null'" 2>/dev/null || echo "")
 if [[ -z "$BUN_VER" ]]; then
-    echo "  安装 bun..."
-    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'curl -fsSL https://bun.sh/install | bash 2>&1 | tail -5'"
+    echo "  安装 bun（通过 ghproxy 代理）..."
+    # 失败时用 ghproxy 兜底下载 bun 二进制
+    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'curl -fsSL https://bun.sh/install | bash 2>&1 | tail -3 || { BUN_VER=1.2.9; curl -fsSL https://ghproxy.net/https://github.com/oven-sh/bun/releases/download/bun-v\${BUN_VER}/bun-linux-x64.zip -o /tmp/bun.zip && unzip -o /tmp/bun.zip -d /tmp && cp /tmp/bun-linux-x64/bun /usr/local/bin/ && chmod +x /usr/local/bin/bun && bun --version; }'"
 else
     echo "  bun $BUN_VER (跳过)"
 fi

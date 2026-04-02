@@ -1,9 +1,9 @@
 #!/bin/bash
 # post-install.sh - OpenClaw 安装后配置脚本
 # 用法: ./post-install.sh <HOST> [SSH_KEY]
-# 在 openclaw onboard + npx @larksuite/openclaw-lark install 完成后执行
 #
 # 包含：
+#   0. 飞书插件安装检查（如未安装则提示并退出）
 #   1. 飞书四项优化配置
 #   1.5. 工具安全配置（tools.profile + tools.exec.security）
 #   2. Gateway 重启 + 状态验证
@@ -26,8 +26,30 @@ echo "=== OpenClaw 飞书配置后处理 ==="
 echo "目标: $HOST"
 echo ""
 
+# 0. 检查飞书插件是否已安装
+echo "[0/7] 飞书插件安装检查..."
+FEISHU_PLUGIN=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'ls ~/.openclaw/plugins/ 2>/dev/null | grep lark || echo not_found'" 2>/dev/null)
+if [[ "$FEISHU_PLUGIN" == "not_found" ]] || [[ -z "$FEISHU_PLUGIN" ]]; then
+    echo "  ⚠️ 飞书插件未安装，请先完成以下步骤："
+    echo ""
+    echo "  步骤1 - 绑定飞书频道："
+    echo "    ssh -i $SSH_KEY root@$HOST"
+    echo "    openclaw onboard"
+    echo "    （选择飞书频道，按提示完成）"
+    echo ""
+    echo "  步骤2 - 安装飞书插件（扫码授权）："
+    echo "    npx @larksuite/openclaw-lark install"
+    echo "    （用飞书 App 扫码授权）"
+    echo ""
+    echo "  完成后重新运行此脚本："
+    echo "    ./post-install.sh $HOST"
+    echo ""
+    exit 1
+fi
+echo "  ✅ 飞书插件已安装"
+
 # 1. 飞书四项优化配置
-echo "[1/6] 飞书优化配置..."
+echo "[1/7] 飞书优化配置..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  channels.feishu.streaming = true"
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true 2>&1 | grep -v \"^Warning\" | tail -1'"
@@ -38,7 +60,7 @@ ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.thread
 echo "  channels.feishu.threadSession = true"
 
 # 1.5 工具安全配置（解决 TUI exec 授权问题）
-echo "[1.5/7] 工具安全配置..."
+echo "[1.5/8] 工具安全配置..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set tools.profile full 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  tools.profile = full"
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config set tools.exec.security full 2>&1 | grep -v \"^Warning\" | tail -1'"
@@ -46,17 +68,17 @@ echo "  tools.exec.security = full"
 
 # 2. Gateway 重启
 echo ""
-echo "[2/7] Gateway 重启..."
+echo "[2/8] Gateway 重启..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user restart openclaw-gateway.service 2>&1 | tail -1'"
 
 # 3. 等待启动
 echo ""
-echo "[3/7] 等待 Gateway 就绪..."
+echo "[3/8] 等待 Gateway 就绪..."
 sleep 6
 
 # 4. 状态验证
 echo ""
-echo "[4/7] 状态验证..."
+echo "[4/8] 状态验证..."
 GW_STATUS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'systemctl --user status openclaw-gateway.service 2>&1 | grep -E \"Active: active.*running\"" 2>/dev/null || echo "未运行")
 echo "  Gateway: $GW_STATUS"
 
@@ -72,7 +94,7 @@ fi
 
 # 5. 配置确认
 echo ""
-echo "[5/7] 配置确认..."
+echo "[5/8] 配置确认..."
 echo "  streaming: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.streaming'" 2>/dev/null)"
 echo "  footer.elapsed: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.elapsed'" 2>/dev/null)"
 echo "  footer.status: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.status'" 2>/dev/null)"
@@ -80,7 +102,7 @@ echo "  threadSession: $(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw config g
 
 # 6. bootstrap-skills 同步
 echo ""
-echo "[6/7] bootstrap-skills 同步..."
+echo "[6/8] bootstrap-skills 同步..."
 WORKSPACE_EXISTS=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD '[ -d /root/.openclaw/workspace ] && echo yes || echo no'" 2>/dev/null)
 if [[ "$WORKSPACE_EXISTS" != "yes" ]]; then
     echo "  workspace 目录不存在，跳过"
