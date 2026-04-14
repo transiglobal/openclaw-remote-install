@@ -134,30 +134,58 @@ echo "[10/11] Doctor 修复..."
 ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw doctor --fix 2>&1 | tail -5'"
 echo "  Doctor 修复完成"
 
+
 # 11. TUI 设备配对（V2026.03.31+ 必需）
 echo "[11/11] TUI 设备配对..."
-echo "  启动 openclaw tui 生成配对请求..."
-# 后台启动 tui，发送一条消息后退出，触发配对请求
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'TOKEN=\$(openclaw config get gateway.auth.token 2>/dev/null | tr -d \"\\n\"); nohup sh -c \"PATH=/root/.nvm/versions/node/v22.22.2/bin:\\\$PATH openclaw tui --url ws://127.0.0.1:25982 --token \\$TOKEN --thinking off --message ping --deliver > /tmp/openclaw-tui-pair.log 2>&1\" &'"
-sleep 5
-# 获取 pending requestId
-PENDING_JSON=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'PATH=/root/.nvm/versions/node/v22.22.2/bin:\$PATH openclaw devices list --json 2>&1'" 2>/dev/null)
-REQUEST_ID=$(echo "$PENDING_JSON" | python3 -c "
+
+# 动态获取远程机器的 Node 路径（兼容 nvm/fnm/nodesource/brew 等各种安装方式）
+NODE_BIN_DIR=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'dirname \$(which node)'" 2>/dev/null | xargs)
+if [[ -z "$NODE_BIN_DIR" || "$NODE_BIN_DIR" == *"not found"* || "$NODE_BIN_DIR" == *"which: no"* ]]; then
+    echo "  ⚠️ which node 失败，遍历常见路径..."
+    NODE_BIN_DIR=""
+    for candidate in /usr/local/bin /usr/bin; do
+        if ssh $SSH_OPTS root@$HOST "test -x $candidate/node" 2>/dev/null; then
+            NODE_BIN_DIR="$candidate"
+            break
+        fi
+    done
+    # nvm 路径（glob 展开）
+    if [[ -z "$NODE_BIN_DIR" ]]; then
+        NODE_BIN_DIR=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'ls -d ~/.nvm/versions/node/*/bin 2>/dev/null | head -1'" 2>/dev/null | xargs)
+    fi
+    # fnm 路径
+    if [[ -z "$NODE_BIN_DIR" ]]; then
+        NODE_BIN_DIR=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'ls -d ~/.fnm/node-versions/*/installation/bin 2>/dev/null | head -1'" 2>/dev/null | xargs)
+    fi
+fi
+
+if [[ -z "$NODE_BIN_DIR" ]]; then
+    echo "  ❌ 无法确定 Node.js 路径，跳过 TUI 配对"
+    echo "  请手动执行: openclaw devices list && openclaw devices approve <requestId>"
+else
+    echo "  Node.js 路径: $NODE_BIN_DIR"
+    echo "  启动 openclaw tui 生成配对请求..."
+    # 后台启动 tui，发送一条消息后退出，触发配对请求
+    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'TOKEN=\$(openclaw config get gateway.auth.token 2>/dev/null | tr -d \"\\n\"); nohup sh -c \"PATH=${NODE_BIN_DIR}:\\\$PATH openclaw tui --url ws://127.0.0.1:25982 --token \\$TOKEN --thinking off --message ping --deliver > /tmp/openclaw-tui-pair.log 2>&1\" &'"
+    sleep 5
+    # 获取 pending requestId
+    PENDING_JSON=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'PATH=${NODE_BIN_DIR}:\$PATH openclaw devices list --json 2>&1'" 2>/dev/null)
+    REQUEST_ID=$(echo "$PENDING_JSON" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 pending = data.get('pending', [])
 if pending:
     print(pending[0].get('requestId', ''))
 " 2>/dev/null)
-if [[ -n "$REQUEST_ID" ]]; then
-    echo "  配对请求: $REQUEST_ID"
-    APPROVE_RESULT=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'PATH=/root/.nvm/versions/node/v22.22.2/bin:\$PATH openclaw devices approve $REQUEST_ID 2>&1'")
-    echo "  批准结果: $APPROVE_RESULT"
-    echo "  ✅ 设备配对完成"
-else
-    echo "  ⚠️ 未发现待处理配对请求（可能已存在或无需配对）"
+    if [[ -n "$REQUEST_ID" ]]; then
+        echo "  配对请求: $REQUEST_ID"
+        APPROVE_RESULT=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'PATH=${NODE_BIN_DIR}:\$PATH openclaw devices approve $REQUEST_ID 2>&1'")
+        echo "  批准结果: $APPROVE_RESULT"
+        echo "  ✅ 设备配对完成"
+    else
+        echo "  ⚠️ 未发现待处理配对请求（可能已存在或无需配对）"
+    fi
 fi
-
 # 完成后还原 npm 国内源
 echo ""
 echo "=== 还原 npm 国内源 ==="

@@ -41,13 +41,15 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
   ↓
 ④ npm 源检查与切换（确保为国内镜像）
   ↓
-⑤ 验证 + 总结报告
+⑤ 完整验证（verify.sh，8大检查项）
   ↓
 ⑥ 飞书频道绑定：用户手动执行 openclaw onboard
   ↓
 ⑦ 飞书插件安装：用户手动执行 npx @larksuite/openclaw-lark install（过程中自动提示扫码）
   ↓
 ⑧ AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
+  ↓
+⑨ 验证飞书连接状态（再次运行 verify.sh 确认飞书 WebSocket ok）
 ```
 
 **步骤⑥⑦由用户在服务器终端手动执行，不在 subagent 内完成。步骤⑦安装过程会自动弹出扫码提示，无需单独引导。**
@@ -95,7 +97,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
 
 ### ④ 安装执行（全自动，含 QMD）
 
-`install.sh` 脚本全自动执行，共 9 步：
+`install.sh` 脚本全自动执行，共 11 步：
 
 ```
 步骤1: SSH 连接测试
@@ -107,39 +109,83 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
 步骤7: QMD 安装与配置（bun + @tobilu/qmd + memory.backend=qmd）← 必选
 步骤8: Gateway 安装与启动
 步骤9: 状态验证
+步骤10: Doctor 修复（openclaw doctor --fix）
+步骤11: TUI 设备配对
 ```
 
 **所有步骤全自动执行，出错则汇报给用户。**
 
-### ⑤ 完成后还原 npm 国内源
+### ⑥ 完整验证（verify.sh）⭐
 
-每次安装/升级前自动检查 npm 源，非国内镜像自动切换后再执行：
+安装/升级后**必须**执行 `scripts/verify.sh` 做全面验证，包含 9 大检查项：
 
-```bash
-ssh root@<HOST> 'bash -l -c "npm config set registry https://registry.npmmirror.com && npm config get registry"'
+```
+[1/9] SSH 连通性         → 目标可达
+[2/9] 版本确认           → openclaw + node 版本
+[3/9] Gateway 状态       → 进程 running + Dashboard HTTP 200
+[4/9] openclaw doctor    → 运行 doctor 检查，提取 warnings/errors
+[5/9] QMD 记忆后端       → qmd 版本 + memory.backend=qmd
+[6/9] 飞书插件状态       → npx @larksuite/openclaw-lark doctor（如已配置飞书）
+[7/9] 企微插件状态       → doctor确认 + 日志运行记录 + 错误检查（如已配置企微）
+[8/9] 日志异常检测       → 当日日志 ERROR/FATAL 计数和摘要
+[9/9] npm 源 + 磁盘      → 国内镜像 + 磁盘空间
 ```
 
-### ⑥ 最终验证与报告
+**飞书检查**：运行 `npx @larksuite/openclaw-lark doctor`，检查返回结果是否有 error/异常/未连接。
 
+**企微检查**（无专用 doctor 命令，组合判断）：
+1. `openclaw doctor` 输出是否包含 `企业微信: ok` 或 `configured`
+2. 当日日志中是否包含企微运行成功记录（`setWeixinRuntime successfully`）
+3. 当日日志中企微相关 ERROR/FATAL 数量
+
+**日志异常检测**：用 python3 解析当日 JSON 格式日志，归纳所有 WARN/ERROR/FATAL：
+- **判定逻辑**：FATAL→❌（重大问题）| ERROR→⚠️（需关注）| WARN→✅（仅记录，不影响判定）
+- **归纳报告**：每类异常按频次降序排列，去重显示 top 20，附带出现次数（如 `[662x] 消息内容`）
+- 报告在验证汇总后单独输出，方便用户快速定位问题
+
+**执行方式**：
 ```bash
-# Gateway 状态
-ssh root@<HOST> 'bash -l -c "systemctl --user status openclaw-gateway.service | grep -E '\''Active:|running'\''"'
-
-# 版本确认
-ssh root@<HOST> 'bash -l -c "openclaw --version"'
-
-# QMD 确认
-ssh root@<HOST> 'bash -l -c "qmd --version 2>/dev/null || bun x qmd --version"'
-
-# npm 源确认
-ssh root@<HOST> 'bash -l -c "npm config get registry"'
+scripts/verify.sh root@<HOST> ~/.ssh/id_rsa_tnt
 ```
 
-汇总报告：
-- OpenClaw 版本
-- Gateway 运行状态
-- npm 源状态
-- QMD 版本
+**验证报告示例**：
+```
+══════════════════════════════════════════
+  OpenClaw 远程验证: root@43.134.173.17
+══════════════════════════════════════════
+
+  ✅ | SSH 连接        | 可达
+  ✅ | OpenClaw 版本   | OpenClaw 2026.4.9
+  ✅ | Node.js         | v22.22.2
+  ✅ | Gateway 进程     | running
+  ✅ | Dashboard       | HTTP 200
+  ✅ | Doctor 检查     | 无严重问题
+  ✅ | QMD 版本        | 1.2.0
+  ✅ | memory.backend  | qmd
+  ✅ | 飞书 doctor     | 正常
+  ✅ | 企微插件        | doctor确认 + 日志正常
+  ✅ | 企微 corpId     | 已配置
+  ✅ | 日志异常        | 无 ERROR/FATAL
+  ✅ | npm 源          | https://registry.npmmirror.com
+  ✅ | 磁盘使用率      | 35%
+
+  总计: 14 项 | ✅ 13  ⚠️ 0  ❌ 0
+  🟢 全部通过
+```
+
+**结果判定**：
+- 🟢 全部通过 → 安装/升级成功
+- 🟡 有警告 → 可用但建议检查
+- 🔴 有失败 → 必须处理后再继续
+
+**异常处理**：
+- doctor 有 warning → 先尝试 `openclaw doctor --fix` 自动修复，再跑验证
+- Gateway 未运行 → 重启 Gateway 再验证
+- 飞书 doctor 异常 → 检查插件配置和 token，可能需重新 `npx @larksuite/openclaw-lark install`
+- 企微异常 → 检查 botId/secret 配置，查看日志具体错误
+- 日志有 FATAL → 输出详细归纳报告（去重+频次），评估是否需要回滚
+- 日志有 ERROR → 输出归纳报告供参考，不影响整体可用性判定
+- 日志有 WARN → 记录在报告中，不判定为异常
 
 ### ⑦ 飞书插件安装（用户手动执行）⭐
 
@@ -420,21 +466,26 @@ scripts/upgrade.sh root@43.134.173.17 ~/.ssh/id_rsa_tnt 2026.4.11
 12. 验证 Gateway 运行状态
 13. 输出汇总报告
 
-### ⑥ 验证结果
+### ⑥ 完整验证（verify.sh）⭐
+
+升级后**必须**执行 `scripts/verify.sh` 做全面验证（与安装相同），包含 8 大检查项：
 
 ```bash
-# 版本验证
-ssh $SSH_USER@$HOST 'bash -l -c "openclaw --version"'
-
-# Gateway 状态
-ssh $SSH_USER@$HOST 'ps aux | grep openclaw-gateway | grep -v grep'
-
-# Dashboard 可用性
-ssh $SSH_USER@$HOST 'curl -s http://127.0.0.1:18789/ | head -1'
-
-# npm 源确认（应为国内源）
-ssh $SSH_USER@$HOST 'bash -l -c "npm config get registry"'
+scripts/verify.sh $SSH_USER@$HOST ~/.ssh/id_rsa_tnt
 ```
+
+验证项：SSH连通性 → 版本确认 → Gateway状态 → openclaw doctor → QMD记忆后端 → 飞书插件状态 → 企微插件状态 → npm源+磁盘
+
+**结果判定**：
+- 🟢 全部通过 → 升级成功
+- 🟡 有警告 → 可用但建议检查
+- 🔴 有失败 → 考虑回滚（回滚脚本在步骤④已生成）
+
+**异常处理**：
+- doctor 有 warning → 先 `openclaw doctor --fix` 再验证
+- Gateway 未运行 → `systemctl --user restart openclaw-gateway` 再验证
+- 飞书/企微断连 → 检查插件配置，可能需要重新授权
+- 验证失败且无法修复 → 询问用户是否回滚
 
 ### ⑦ 汇总报告
 
@@ -575,9 +626,12 @@ ssh $SSH_USER@$HOST 'chmod +x ~/.openclaw/scripts/scheduled-upgrade.sh'
 
 | 脚本 | 路径 | 用途 |
 |------|------|------|
-| `upgrade.sh` | `scripts/upgrade.sh` | 一次性远程升级（含回滚） |
-| `scheduled-upgrade.sh` | `scripts/scheduled-upgrade.sh` | 部署到目标机器的定时升级脚本 |
 | `install.sh` | `scripts/install.sh` | 全新安装（含 QMD + bootstrap-skills） |
+| `upgrade.sh` | `scripts/upgrade.sh` | 一次性远程升级（含回滚） |
+| `verify.sh` | `scripts/verify.sh` | 安装/升级后完整验证（8大检查项，含 doctor + 飞书 + 企微） |
+| `scheduled-upgrade.sh` | `scripts/scheduled-upgrade.sh` | 部署到目标机器的定时升级脚本 |
+| `diagnose.sh` | `scripts/diagnose.sh` | 远程机器快速诊断 |
+| `post-install.sh` | `scripts/post-install.sh` | 飞书四项优化 + bootstrap-skills 同步 |
 
 ---
 
