@@ -35,9 +35,22 @@ OPENCLAW_VER=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'openclaw --version 2>/dev/n
 echo "  Node.js: $NODE_VER"
 echo "  openclaw: ${OPENCLAW_VER:0:50}"
 
-# 3. 设置 npm 国内镜像
-echo "[3/11] 设置 npm 国内镜像..."
-ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npm config set registry https://registry.npmmirror.com && npm config get registry'"
+# 3. 检查并切换 npm 国内镜像
+echo "[3/11] 检查并切换 npm 国内镜像..."
+_CURRENT_REG=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npm config get registry 2>/dev/null'" 2>/dev/null | xargs || echo "")
+if [[ -n "$_CURRENT_REG" ]] && echo "$_CURRENT_REG" | grep -qE "npmmirror|tencent|cnpm|aliyun|huawei"; then
+    echo "  ✅ npm 源已是国内镜像: $_CURRENT_REG"
+else
+    if [[ -n "$_CURRENT_REG" ]]; then
+        echo "  ⚠️  当前 npm 源非国内镜像: $_CURRENT_REG"
+    else
+        echo "  ⚠️  无法获取当前 npm 源"
+    fi
+    echo "  → 切换为 https://registry.npmmirror.com ..."
+    ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npm config set registry https://registry.npmmirror.com'"
+    _NEW_REG=$(ssh $SSH_OPTS root@$HOST "$SHELL_CMD 'npm config get registry 2>/dev/null'" 2>/dev/null | xargs || echo "")
+    echo "  ✅ 已切换为: $_NEW_REG"
+fi
 
 # 4. Node.js 版本检查与升级
 NODE_MAJOR=$(echo "$NODE_VER" | sed 's/v\([0-9]*\)\..*/\1/' | tr -d 'v')
