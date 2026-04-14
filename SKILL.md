@@ -1,11 +1,11 @@
 ---
 name: openclaw-remote-install
-description: 在远程 Linux 机器上安装或修复 OpenClaw。处理以下复杂情况：(1) 用户指定版本或默认安装最新版；(2) 已安装则查版本，不一致时询问用户；(3) Node.js 版本低于 v22；(4) SSH 非交互式会话不加载 .bashrc 导致 pnpm 等环境缺失；(5) npm install 超时被 kill；(6) QMD 本地搜索增强自动安装（BM25+向量搜索+重排序）；(7) bootstrap-skills 技能同步；(8) 完成后还原 npm 国际源。**飞书插件安装是第7步，用户手动在服务器运行命令，安装过程会自动提示扫码，无需单独询问**。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」。
+description: 在远程 Linux 机器上安装、修复或升级 OpenClaw。支持远程安装（含 Node.js/飞书/QMD/bootstrap-skills 全自动）、远程升级（版本对比+Changelog 分析+Breaking Change 处理+回滚方案）、以及定时升级任务创建。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」「远程升级」「定时升级」。
 ---
 
 # openclaw-remote-install
 
-远程 Linux 机器上的 OpenClaw 安装/修复技能，**完全非交互式**，稳定可靠。
+远程 Linux 机器上的 OpenClaw 安装/修复/升级技能，**完全非交互式**，稳定可靠。
 
 ## 核心原则：SSH 命令必须加载 shell 环境
 
@@ -24,7 +24,11 @@ ssh root@<HOST> 'openclaw --version'
 ssh root@<HOST> 'bash -l -c "openclaw --version"'
 ```
 
-## 流程概览
+---
+
+# 第一部分：远程安装 OpenClaw
+
+## 安装流程概览
 
 ```
 用户: 在xxx机器装OpenClaw
@@ -35,7 +39,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
   ↓
 ③ 执行安装（全自动化，含 QMD + bootstrap-skills）
   ↓
-④ npm 源还原
+④ npm 源检查与切换（确保为国内镜像）
   ↓
 ⑤ 验证 + 总结报告
   ↓
@@ -48,7 +52,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
 
 **步骤⑥⑦由用户在服务器终端手动执行，不在 subagent 内完成。步骤⑦安装过程会自动弹出扫码提示，无需单独引导。**
 
-## 详细步骤
+## 安装详细步骤
 
 ### ① 版本确认
 
@@ -96,7 +100,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
 ```
 步骤1: SSH 连接测试
 步骤2: Node.js 版本检测（低于 v22 则自动升级）
-步骤3: 设置 npm 国内镜像
+步骤3: 检查并切换 npm 国内镜像（检查当前源，非国内则切换）
 步骤4: 安装/升级 openclaw
 步骤5: 验证 openclaw 版本
 步骤6: gateway.mode 检测与设置（首次安装自动设置 local）
@@ -109,7 +113,7 @@ ssh root@<HOST> 'bash -l -c "openclaw --version 2>/dev/null || echo NOT_INSTALLE
 
 ### ⑤ 完成后还原 npm 国内源
 
-OpenClaw 安装/升级后可能将 npm 源改回国际源，必须还原：
+每次安装/升级前自动检查 npm 源，非国内镜像自动切换后再执行：
 
 ```bash
 ssh root@<HOST> 'bash -l -c "npm config set registry https://registry.npmmirror.com && npm config get registry"'
@@ -150,7 +154,7 @@ npx -y @larksuite/openclaw-lark install
 
 > ⚠️ `openclaw onboard` 需在此步骤之前完成（步骤⑥）。
 
-### ⑨ AI 执行 post-install.sh（飞书优化 + bootstrap-skills）⭐
+### ⑧ AI 执行 post-install.sh（飞书优化 + bootstrap-skills）⭐
 
 用户扫码完成后，AI 自动执行 `post-install.sh`，包含：
 
@@ -166,7 +170,7 @@ npx -y @larksuite/openclaw-lark install
    - 添加 `https://eeffa2cab255f9034e033c929f58488f799e5b3e@git.moguyn.cn/transiglobal/bootstrap-skills.git` remote（如未添加）
    - `git submodule update --init skills/bootstrap-skills`
 
-## 典型场景处理
+## 安装典型场景
 
 ### 场景A：干净环境（无 Node.js）
 
@@ -227,4 +231,435 @@ npx -y @larksuite/openclaw-lark install
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
 → 全部完成
+```
+
+---
+
+# 第二部分：远程升级 OpenClaw（含回滚）
+
+当用户说「升级 OpenClaw」「远程升级」「定时升级」时触发此流程。
+
+## 升级流程概览
+
+```
+用户: 在xxx机器上升级OpenClaw
+  ↓
+① 版本确认（当前版本 vs 最新版本/指定版本）
+  ↓
+② 获取变更日志（Changelog），特别关注 Breaking Changes
+  ↓
+③ Breaking Change 处理：需要用户确认则询问，否则自动生成处理步骤
+  ↓
+④ 规划回滚方案（备份当前版本+配置，生成回滚脚本）
+  ↓
+⑤ 执行升级（scripts/upgrade.sh）
+  ↓
+⑥ 重启 Gateway + 验证结果
+  ↓
+⑦ 汇总报告（含回滚信息）
+  ↓
+⑧ 建议定时升级任务（用户确认后创建）
+```
+
+## 升级详细步骤
+
+### ① 版本确认与对比
+
+```bash
+# 获取当前版本
+ssh $SSH_USER@$HOST 'bash -l -c "openclaw --version"'
+
+# 获取最新版本（从 npm registry）
+ssh $SSH_USER@$HOST 'bash -l -c "npm view openclaw version"'
+
+# 或从 GitHub releases 获取
+curl -s https://api.github.com/repos/openclaw/openclaw/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+'
+```
+
+**版本对比逻辑**：
+- 当前版本 == 最新版本 → 询问是否覆盖安装
+- 当前版本 < 最新版本 → 执行升级
+- 当前版本 > 最新版本 → 提示用户，确认是否降级
+- 未安装 → 建议使用 install.sh 全新安装
+
+### ② 获取变更日志（Changelog）
+
+从 GitHub 获取变更日志：
+
+```bash
+# 从 GitHub releases API 获取（推荐，结构化数据）
+curl -s https://api.github.com/repos/openclaw/openclaw/releases/latest
+
+# 从 CHANGELOG.md 获取
+curl -s https://raw.githubusercontent.com/openclaw/openclaw/main/CHANGELOG.md
+```
+
+**分析维度**：
+- **Breaking Changes**：删除/废弃的功能、API 变更、配置格式变更
+- **新功能**：新工具、新能力、性能改进
+- **Bug 修复**：影响当前使用的问题修复
+- **依赖变更**：新增/移除的依赖，可能影响系统环境
+
+**输出格式**：
+```
+📝 v2026.4.9 → v2026.4.11 变更摘要
+
+⚠️ Breaking Changes: 无 / [具体变更]
+
+🌟 新功能:
+  - Dreaming/memory-wiki: ChatGPT 导入支持
+  - 飞书: 文档评论会话增强
+
+🔧 Bug 修复 (15+ 项):
+  - OpenAI/Codex OAuth 登录失败修复
+  - 音频转录 DNS 验证问题修复
+```
+
+### ③ Breaking Change 处理（Agent 自主决策）
+
+`upgrade.sh` 检测到 BC 时会输出 `=== BC_REPORT ===` 结构化数据并以 exit 2 暂停。Agent 收到 BC_REPORT 后**自主分析并决策**，而非一律询问用户。
+
+**Agent 决策流程**：
+
+```
+upgrade.sh 检测到 BC → 输出 BC_REPORT → exit 2
+  ↓
+Agent 解析 BC_REPORT
+  ↓
+Agent 判断 BC 类型
+  ├─ 安全（不影响当前使用）→ Agent 直接用 --force 重新执行，不问用户
+  ├─ 可自动处理（配置迁移等）→ Agent 先执行迁移步骤，再用 --force
+  └─ 必须用户手动操作 → Agent 暂停，询问用户
+```
+
+**判定标准**：
+
+| BC 类型 | Agent 处理方式 | 示例 |
+|---------|--------------|------|
+| 内部 SDK 路径重构（保留兼容导出） | 直接 `--force` | 插件 SDK 子路径拆分 |
+| 废弃功能但有替代方案 | 直接 `--force` | 旧字段名 → 新字段名 |
+| 依赖版本变更 | 直接 `--force` | npm 依赖升级 |
+| 配置字段重命名 | 先迁移配置，再 `--force` | `old.field` → `new.field` |
+| 功能删除无替代 | **询问用户** | 移除某工具 |
+| 需要数据迁移 | **询问用户** | 数据库 schema 变更 |
+| 不确定影响范围 | **询问用户** | agent 无法判断 |
+
+**询问话术**（仅在必须用户操作时）：
+```
+⚠️ v{TARGET_VERSION} 包含需要手动处理的 Breaking Changes：
+
+1. [变更描述]
+   影响：[影响说明]
+   建议处理：[操作步骤]
+
+请先完成上述处理，然后回复「继续」，我再执行升级。
+```
+
+**关键原则**：Agent 能判断的自己判断，能处理的自己处理，只有必须用户操作的才停下来。
+
+### ④ 规划回滚方案
+
+升级前自动生成回滚方案：
+
+```bash
+# 备份目录
+BACKUP_DIR="/tmp/openclaw-rollback-$(date +%Y%m%d%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# 备份当前版本信息
+ssh $SSH_USER@$HOST 'npm list -g openclaw' > "$BACKUP_DIR/npm-list.txt"
+
+# 备份配置文件
+scp $SSH_USER@$HOST:~/.openclaw/openclaw.json "$BACKUP_DIR/openclaw-config.json"
+
+# 生成回滚脚本
+cat > "$BACKUP_DIR/rollback.sh" << 'EOF'
+#!/bin/bash
+# 一键回滚
+ssh $SSH_USER@$HOST 'bash -l -c "npm install -g openclaw@{CURRENT_VER}"'
+scp "$BACKUP_DIR/openclaw-config.json" $SSH_USER@$HOST:~/.openclaw/openclaw.json
+ssh $SSH_USER@$HOST 'bash -l -c "openclaw gateway restart"'
+echo "✅ 回滚完成: v{CURRENT_VER}"
+EOF
+chmod +x "$BACKUP_DIR/rollback.sh"
+```
+
+**回滚信息包含**：
+- 回滚目标版本号
+- 回滚脚本路径
+- 配置备份路径
+- 回滚命令（一键执行）
+
+### ⑤ 执行升级
+
+使用 `scripts/upgrade.sh` 执行：
+
+```bash
+# 用法
+scripts/upgrade.sh <USER@HOST> [SSH_KEY] [TARGET_VERSION]
+
+# 示例：升级到最新版
+scripts/upgrade.sh trclaw2@100.81.167.91 ~/.ssh/id_rsa_tnt
+
+# 示例：升级到指定版本
+scripts/upgrade.sh root@43.134.173.17 ~/.ssh/id_rsa_tnt 2026.4.11
+```
+
+**升级步骤**（upgrade.sh 内部逻辑）：
+1. SSH 连接测试
+2. 版本检测与对比
+3. 获取变更日志（输出供外部解析）
+4. 生成回滚脚本
+5. 清理残留 npm 进程
+6. 检查并切换 npm 国内源（非国内镜像则切换）
+7. 执行 `npm install -g openclaw@目标版本`
+8. 验证版本
+9. 失败重试（1 次）
+10. 重启 Gateway
+11. 恢复 npm 国内源
+12. 验证 Gateway 运行状态
+13. 输出汇总报告
+
+### ⑥ 验证结果
+
+```bash
+# 版本验证
+ssh $SSH_USER@$HOST 'bash -l -c "openclaw --version"'
+
+# Gateway 状态
+ssh $SSH_USER@$HOST 'ps aux | grep openclaw-gateway | grep -v grep'
+
+# Dashboard 可用性
+ssh $SSH_USER@$HOST 'curl -s http://127.0.0.1:18789/ | head -1'
+
+# npm 源确认（应为国内源）
+ssh $SSH_USER@$HOST 'bash -l -c "npm config get registry"'
+```
+
+### ⑦ 汇总报告
+
+升级完成后输出报告：
+
+```
+══════════════════════════════════════════
+  OpenClaw 升级报告
+══════════════════════════════════════════
+
+  目标机器: {user}@{host}
+  升级路径: v{current} → v{target}
+  升级结果: ✅ 成功 / ❌ 失败
+  Gateway: 🟢 运行中 / 🔴 未运行
+  npm 源: {registry}
+
+  📦 回滚信息:
+     回滚脚本: {rollback_path}
+     回滚命令: bash {rollback_path}
+
+  🆕 新版本亮点:
+     - [feature 1]
+     - [feature 2]
+
+  ⚠️ Breaking Changes:
+     - [change 1]（如有）
+══════════════════════════════════════════
+```
+
+### ⑧ 建议定时升级任务
+
+升级完成后，询问用户是否创建定时升级任务：
+
+```
+✅ 升级完成！
+
+💡 建议创建定时升级任务，自动保持 OpenClaw 为最新版本。
+   每天凌晨自动检查并升级（有 Breaking Changes 时暂停并通知用户确认）。
+
+是否创建定时升级任务？
+```
+
+用户确认后：
+
+1. **部署定时升级脚本**到目标机器：
+
+```bash
+scp scripts/scheduled-upgrade.sh $SSH_USER@$HOST:~/.openclaw/scripts/
+ssh $SSH_USER@$HOST 'chmod +x ~/.openclaw/scripts/scheduled-upgrade.sh'
+```
+
+2. **创建 OpenClaw Cron Job**：
+
+```json
+{
+  "name": "系统更新",
+  "schedule": { "kind": "cron", "expr": "0 4 * * *", "tz": "Asia/Shanghai" },
+  "payload": {
+    "kind": "agentTurn",
+    "message": "执行 OpenClaw 定时升级。运行 ~/.openclaw/scripts/scheduled-upgrade.sh，如有 Breaking Changes 则暂停并通知用户确认。升级完成后汇报结果。"
+  },
+  "delivery": { "mode": "announce" },
+  "sessionTarget": "isolated"
+}
+```
+
+## 升级典型场景
+
+### 场景A：常规升级（无 Breaking Changes）
+
+```
+→ 检测到 v2026.4.9 → v2026.4.11
+→ 无 Breaking Changes
+→ 直接执行升级
+→ 验证通过
+→ 汇报：升级成功，无 Breaking Changes
+```
+
+### 场景B：有 Breaking Changes（Agent 自主决策）
+
+**情况 1：BC 安全，Agent 自动跳过**
+```
+→ 检测到 v2026.4.9 → v2026.4.11
+→ script exit 2，BC_REPORT: 插件 SDK 路径拆分（保留兼容导出）
+→ Agent 判断：内部 SDK 重构，保留兼容性，安全
+→ Agent 自动用 --force 重新执行，不问用户
+→ 验证通过
+→ 汇报：升级成功，BC 为内部 SDK 路径拆分，不影响使用
+```
+
+**情况 2：BC 需配置迁移，Agent 自动处理**
+```
+→ 检测到 v2026.5.0 → v2026.5.1
+→ script exit 2，BC_REPORT: 字段 feishu.threadSession 已废弃，改用 channels.feishu.threadMode
+→ Agent 判断：可自动迁移
+→ Agent 先修改 openclaw.json：threadSession: true → threadMode: "session"
+→ Agent 用 --force 重新执行升级
+→ 验证通过
+→ 汇报：升级成功，已自动迁移 threadSession → threadMode
+```
+
+**情况 3：BC 需用户操作，Agent 暂停询问**
+```
+→ 检测到 v2026.6.0 → v2026.7.0
+→ script exit 2，BC_REPORT: 移除旧版 memory 插件，需迁移到 QMD 后端
+→ Agent 判断：需要用户确认数据迁移方案
+→ Agent 暂停，询问用户
+→ 用户确认后执行升级
+→ 汇报：升级成功
+```
+
+### 场景C：升级失败回滚
+
+```
+→ 执行升级
+→ Gateway 启动失败
+→ 尝试修复（重启、检查配置）
+→ 修复失败
+→ 询问用户是否回滚
+→ 用户确认回滚
+→ 执行 rollback.sh
+→ 验证回滚成功
+→ 汇报：升级失败，已回滚到 v2026.4.9
+```
+
+### 场景D：定时升级（自动）
+
+```
+→ Cron Job 每天凌晨 4:00 执行
+→ 检查是否有新版本
+→ 无更新 → 跳过
+→ 有更新但有 Breaking Changes → 暂停，通知用户
+→ 有更新且无 Breaking Changes → 自动升级
+→ 升级结果推送到飞书通知
+```
+
+## 脚本说明
+
+| 脚本 | 路径 | 用途 |
+|------|------|------|
+| `upgrade.sh` | `scripts/upgrade.sh` | 一次性远程升级（含回滚） |
+| `scheduled-upgrade.sh` | `scripts/scheduled-upgrade.sh` | 部署到目标机器的定时升级脚本 |
+| `install.sh` | `scripts/install.sh` | 全新安装（含 QMD + bootstrap-skills） |
+
+---
+
+# 第三部分：远程 Gateway CLI 管理（含 Pairing）
+
+在目标机器上执行 `openclaw cron`、`openclaw devices` 等管理命令时，需要先完成 Gateway CLI 配对。
+
+## 为什么需要配对？
+
+Gateway 监听在 `127.0.0.1:18789`，远程 SSH 连接时，CLI 会被当作新设备，出现错误：
+```
+gateway connect failed: pairing required
+```
+
+## 配对方法（关键机制）
+
+CLI 有一个 **local pairing fallback** 机制：当检测到目标是本地 loopback 且收到 "pairing required" 时，会 fallback 到直接读写本地 pairing store 文件，跳过 Gateway RPC。因此 SSH 进机器后**不需要指定 `--url`**（指定了就无法触发 fallback），直接运行命令即可触发 fallback。
+
+### 操作步骤
+
+**第一步：SSH 进目标机器，检查是否有待批准的配对请求**
+
+```bash
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw devices list'
+```
+
+输出示例：
+```
+Pending (1)
+┌────────────────────────────────────┬────────────────┬──────────┬─────────────┬────────┐
+│ Request ID                         │ Device         │ Role     │ Age         │ Flags  │
+│ 3e93eae6-9123-433a-b26c-5ecaa00   │ 06dcb3c95363… │ operator │ 2m ago      │ repair │
+└────────────────────────────────────┴────────────────┴──────────┴─────────────┴────────┘
+```
+
+> ⚠️ 如果显示 `command not found`，可能 PATH 未加载 bash 环境，用 `bash -l -c` 包裹命令。
+
+**第二步：批准配对请求**
+
+```bash
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw devices approve <Request ID>'
+```
+
+**第三步：验证**
+
+```bash
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw cron list'
+```
+
+能正常输出 Cron Job 列表即表示配对成功，后续所有 `openclaw` 管理命令均可正常使用。
+
+### 常见问题
+
+**Q：`openclaw: command not found`**
+→ PATH 未加载，用 login shell：`bash -l -c "openclaw ..."`
+
+**Q：devices list 显示 `command not found`**
+→ openclaw 版本较旧，尝试 `openclaw devices -- list`（双横线分隔）
+
+**Q：配对后仍然 `pairing required`**
+→ 可能配对了错误的角色，用 `openclaw devices list` 查看当前已配对设备，用 `openclaw devices revoke --device <id> --role <role>` 撤销后重新配对
+
+## 典型应用场景
+
+### 场景：在目标机器上创建 Cron Job
+
+```bash
+# 1. 先配对
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw devices list'
+# 看到 pending 请求后批准
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw devices approve <requestId>'
+
+# 2. 创建 Cron Job
+ssh -i ~/.ssh/id_rsa_tnt -o StrictHostKeyChecking=no root@<HOST> 'openclaw cron add \
+  --name "定时升级任务" \
+  --cron "30 4 * * *" \
+  --tz "Asia/Shanghai" \
+  --session isolated \
+  --wake now \
+  --message "执行升级脚本..." \
+  --timeout-seconds 900 \
+  --announce \
+  --channel feishu \
+  --to "<飞书用户 open_id>"'
 ```
