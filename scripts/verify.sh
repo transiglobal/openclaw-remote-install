@@ -302,8 +302,15 @@ for level in [\"FATAL\", \"ERROR\", \"WARN\"]:
     fi
 fi
 
-# 9. npm 源 + 系统环境
+# 9. 包管理器源 + 系统环境
 # ──────────────────────────────────────
+# 统一使用 npm（pnpm v10 approve-builds 在 SSH 下不可用）
+OPENCLAW_BIN_PATH=$(run 'which openclaw 2>/dev/null' || echo "")
+DETECTED_PKG_MGR="npm"
+if echo "$OPENCLAW_BIN_PATH" | grep -q "pnpm"; then
+    DETECTED_PKG_MGR="npm (迁移自 pnpm)"
+fi
+
 echo "[9/9] npm 源 + 系统环境..."
 NPM_REG=$(run 'npm config get registry 2>/dev/null' || echo "未获取")
 if echo "$NPM_REG" | grep -qE "npmmirror|tencent|cnpm|aliyun|huawei"; then

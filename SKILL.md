@@ -10,9 +10,11 @@ description: 在远程 Linux 机器上安装、修复或升级 OpenClaw。支持
 ## 核心原则：SSH 命令必须加载 shell 环境
 
 SSH 非交互式会话**不会自动加载 `.bashrc`**（`.bash_profile` 也不会 source 它），导致：
-- `pnpm` PATH 不在 `$PATH` 里
+- `pnpm`/yarn/bun PATH 不在 `$PATH` 里
 - `.bashrc` 里的 npm 配置、pnpm 初始化等全部失效
 - **直接运行 `openclaw` 会报 `command not found`**
+
+**升级方式**：使用 `openclaw update --yes` 进行升级（官方内置命令，自带 self-update 处理、Breaking Changes 检查、Gateway 重启）。无论目标环境之前用什么包管理器安装的 OpenClaw（npm/pnpm/yarn），`openclaw update` 都能正确处理，无需手动迁移包管理器。
 
 **解决方案**：所有 SSH 命令用 login shell 方式执行。
 
@@ -232,15 +234,13 @@ npx -y @larksuite/openclaw-lark install
 → AI 执行 post-install.sh
 ```
 
-### 场景B：有 pnpm 残留，直接用 login shell 加载
+### 场景B：有 pnpm/yarn 安装的旧版本，openclaw update 自动处理
 
 ```
-→ 检测到 pnpm 存在
-→ 用 bash -l -c 自动加载 .bashrc
-→ 验证版本
-→ 升级/安装 OpenClaw
-→ QMD 自动安装
-→ 验证
+→ 检测到已有 OpenClaw（无论用 pnpm/npm/yarn 安装）
+→ 直接使用 openclaw update --yes 升级
+→ openclaw update 自动处理包管理器差异
+→ 验证通过
 → 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码）
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
@@ -438,7 +438,22 @@ chmod +x "$BACKUP_DIR/rollback.sh"
 
 ### ⑤ 执行升级
 
-使用 `scripts/upgrade.sh` 执行：
+使用 `openclaw update --yes` 命令执行升级（官方内置升级命令）：
+
+```bash
+# 远程执行升级
+ssh $SSH_USER@$HOST 'bash -l -c "openclaw update --yes --timeout 600"'
+```
+
+**为什么用 `openclaw update` 而不是 `npm install -g`？**
+- `openclaw update` 是官方内置的升级命令
+- 自带 self-update 处理（不会出现 "替换了正在运行的文件" 导致的 MODULE_NOT_FOUND 错误）
+- 自动处理包管理器差异（npm/pnpm/yarn 都能正确升级）
+- 自带 Breaking Changes 检查
+- 自动重启 Gateway + doctor 检查
+- 支持 `--dry-run` 预检、`--tag` 指定版本
+
+使用 `scripts/upgrade.sh` 执行（封装了回滚、验证等逻辑）：
 
 ```bash
 # 用法
@@ -456,15 +471,11 @@ scripts/upgrade.sh root@43.134.173.17 ~/.ssh/id_rsa_tnt 2026.4.11
 2. 版本检测与对比
 3. 获取变更日志（输出供外部解析）
 4. 生成回滚脚本
-5. 清理残留 npm 进程
-6. 检查并切换 npm 国内源（非国内镜像则切换）
-7. 执行 `npm install -g openclaw@目标版本`
-8. 验证版本
-9. 失败重试（1 次）
-10. 重启 Gateway
-11. 恢复 npm 国内源
-12. 验证 Gateway 运行状态
-13. 输出汇总报告
+5. 执行 `openclaw update --yes --tag <VERSION>`
+6. 验证版本
+7. 重启 Gateway
+8. 验证 Gateway 运行状态
+9. 输出汇总报告
 
 ### ⑥ 完整验证（verify.sh）⭐
 
@@ -542,10 +553,10 @@ ssh $SSH_USER@$HOST 'chmod +x ~/.openclaw/scripts/scheduled-upgrade.sh'
 ```json
 {
   "name": "系统更新",
-  "schedule": { "kind": "cron", "expr": "0 4 * * *", "tz": "Asia/Shanghai" },
+  "schedule": { "kind": "cron", "expr": "30 4 * * *", "tz": "Asia/Shanghai" },
   "payload": {
     "kind": "agentTurn",
-    "message": "执行 OpenClaw 定时升级。运行 ~/.openclaw/scripts/scheduled-upgrade.sh，如有 Breaking Changes 则暂停并通知用户确认。升级完成后汇报结果。"
+    "message": "执行 OpenClaw 自动升级：运行 openclaw update --yes --timeout 600 命令。完成后汇报升级结果：1) 新旧版本号 2) 是否成功 3) 如失败说明原因。成功或失败都通知用户。"
   },
   "delivery": { "mode": "announce" },
   "sessionTarget": "isolated"
