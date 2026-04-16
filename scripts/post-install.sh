@@ -34,16 +34,15 @@ echo "=== OpenClaw 飞书配置后处理 ==="
 echo "目标: $HOST (user: $SSH_USER)"
 echo ""
 
-# 1. 飞书四项优化配置
+# 1. 飞书优化配置（需先安装飞书插件 npx @larksuite/openclaw-lark install）
 echo "[1/7] 飞书优化配置..."
+# streaming：OpenClaw 内置支持，无需插件
 ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true 2>&1 | grep -v \"^Warning\" | tail -1'"
-echo "  channels.feishu.streaming = true"
-ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true 2>&1 | grep -v \"^Warning\" | tail -1'"
-echo "  channels.feishu.footer.elapsed = true"
-ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.status true 2>&1 | grep -v \"^Warning\" | tail -1'"
-echo "  channels.feishu.footer.status = true"
-ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true 2>&1 | grep -v \"^Warning\" | tail -1'"
-echo "  channels.feishu.threadSession = true"
+echo "  streaming = true"
+# 以下三项依赖飞书插件，插件未安装时 schema 不支持这些字段，忽略错误
+ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.elapsed true 2>&1 | grep -v \"^Warning\" | tail -1'" 2>/dev/null && echo "  footer.elapsed = true" || echo "  footer.elapsed = 跳过（需先安装飞书插件）"
+ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.status true 2>&1 | grep -v \"^Warning\" | tail -1'" 2>/dev/null && echo "  footer.status = true" || echo "  footer.status = 跳过（需先安装飞书插件）"
+ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true 2>&1 | grep -v \"^Warning\" | tail -1'" 2>/dev/null && echo "  threadSession = true" || echo "  threadSession = 跳过（需先安装飞书插件）"
 
 # 2. Gateway 重启
 echo ""
