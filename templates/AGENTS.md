@@ -1,48 +1,44 @@
 # AGENTS.md - Agent 行为规范
 
-## OpenClaw 重启规范（永久生效）
+## 配置更新与 Gateway 重启规范
 
-### 配置变更重启（必须带通知）
+⚠️ 配置变更后必须通过 gateway 工具重启，禁止用 exec 直接调用 openclaw gateway restart 来应用配置变更。
 
-涉及配置变更的重启操作，**必须使用 Gateway 工具**，格式：
+### 配置更新（改配置 + 重启）
+
+1. 先获取 baseHash：调用 `gateway` 工具，action=`config.get`
+2. 通过 `session_status` 获取当前 session 的完整 key
+3. 调用 `gateway` 工具，action=`config.patch`，带上以下参数：
+   - `raw`：完整配置 JSON 字符串
+   - `baseHash`：上一步 config.get 返回的 hash
+   - `note`：格式 `"Gateway已重启，原因：XXX"`
+   - `sessionKey`：完整 key（如 `agent:main:feishu:default:direct:ou_xxx`），**不能用简写 agent:main**
 
 ```javascript
-// 第一步：通过 session_status 获取当前 sessionKey
-// 第二步：调用 gateway 工具，传入 sessionKey
-{
-  "tool": "gateway",
-  "action": "config.patch",
-  "raw": "{...}",
-  "note": "Gateway已重启，原因：配置变更（修改默认模型为 glm5t）",
-  "sessionKey": "agent:main:feishu:default:direct:ou_xxx"
-}
+// 正确示例：两步完成配置更新
+// 第一步：获取 baseHash
+gateway({ action: "config.get" })
+// 第二步：调用 config.patch
+gateway({
+  action: "config.patch",
+  raw: "{\"agents\":{...}}",
+  baseHash: "从 config.get 获取",
+  note: "Gateway已重启，原因：修改默认模型为 glm5t",
+  sessionKey: "agent:main:feishu:default:direct:ou_xxx"
+})
 ```
 
 **强制规则：**
 1. ✅ **必须用**：`gateway config.patch` / `gateway config.apply` / `gateway update.run`
-2. ✅ **必须传**：`note` 参数，格式：`"Gateway已重启，原因：XXX"`
-3. ✅ **必须传**：`sessionKey` 参数，通过 `session_status` 工具获取当前会话的 sessionKey
-4. ❌ **禁止用**：`exec: openclaw gateway restart` 做配置变更后的重启
-5. ❌ **禁止用**：`exec: openclaw update`（没有重启通知）
+2. ✅ **必须先获取**：`baseHash`（通过 `gateway config.get`）
+3. ✅ **必须传**：`note` 参数，格式 `"Gateway已重启，原因：XXX"`
+4. ✅ **必须传**：`sessionKey` 参数，完整 key，通过 `session_status` 获取
+5. ❌ **禁止用**：`exec: openclaw gateway restart` 做配置变更后的重启
+6. ❌ **禁止用**：`exec: openclaw update`（没有重启通知）
 
-### 单纯重启（不带配置变更）
+### 单纯重启（不改配置）
 
-如果只是需要重启 Gateway（例如：故障恢复、手动重启），不涉及配置变更：
-
-```javascript
-// 正确示例
-{
-  "tool": "exec",
-  "command": "openclaw gateway restart"
-}
-```
-
-**允许场景：**
-- Gateway 无响应，需要强制重启
-- 调试测试需要重启
-- 配置已手动修改，只需重启生效
-
-**注意**：单纯重启不会自动推送通知给用户。
+使用 `openclaw gateway restart`（仅当不涉及配置变更时）。
 
 ---
 
