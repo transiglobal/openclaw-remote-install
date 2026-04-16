@@ -642,7 +642,7 @@ ssh $SSH_USER@$HOST 'chmod +x ~/.openclaw/scripts/scheduled-upgrade.sh'
 | `verify.sh` | `scripts/verify.sh` | 安装/升级后完整验证（8大检查项，含 doctor + 飞书 + 企微） |
 | `scheduled-upgrade.sh` | `scripts/scheduled-upgrade.sh` | 部署到目标机器的定时升级脚本 |
 | `diagnose.sh` | `scripts/diagnose.sh` | 远程机器快速诊断 |
-| `post-install.sh` | `scripts/post-install.sh` | 飞书四项优化 + bootstrap-skills 同步 |
+| `post-install.sh` | `scripts/post-install.sh` | 飞书四项优化 + bootstrap-skills 同步 + AGENTS.md 重启规范 |
 
 ---
 
