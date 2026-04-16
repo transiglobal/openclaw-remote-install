@@ -5,9 +5,10 @@
 #
 # 包含：
 #   1. 飞书四项优化配置
-#   2. Gateway 重启 + 状态验证
-#   3. bootstrap-skills 技能同步
-#   4. AGENTS.md 重启规范创建
+#   2. 企微插件安装（可选）
+#   3. Gateway 重启 + 状态验证
+#   4. bootstrap-skills 技能同步
+#   5. AGENTS.md 重启规范创建
 
 set -e
 
@@ -35,7 +36,7 @@ echo "目标: $HOST (user: $SSH_USER)"
 echo ""
 
 # 1. 飞书优化配置（需先安装飞书插件 npx @larksuite/openclaw-lark install）
-echo "[1/7] 飞书优化配置..."
+echo "[1/8] 飞书优化配置..."
 # streaming：OpenClaw 内置支持，无需插件
 ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.streaming true 2>&1 | grep -v \"^Warning\" | tail -1'"
 echo "  streaming = true"
@@ -44,9 +45,28 @@ ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.f
 ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.footer.status true 2>&1 | grep -v \"^Warning\" | tail -1'" 2>/dev/null && echo "  footer.status = true" || echo "  footer.status = 跳过（需先安装飞书插件）"
 ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config set channels.feishu.threadSession true 2>&1 | grep -v \"^Warning\" | tail -1'" 2>/dev/null && echo "  threadSession = true" || echo "  threadSession = 跳过（需先安装飞书插件）"
 
-# 2. Gateway 重启
+# 2. 企微插件安装（可选，需先配置好企微应用 corpId/agentId/secret）
 echo ""
-echo "[2/7] Gateway 重启..."
+echo "[2/8] 企微插件检查..."
+WECOM_CHECK=$(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'npx @wecom/wecom-openclaw-cli doctor 2>&1'" 2>/dev/null)
+if [[ $? -eq 0 ]] && echo "$WECOM_CHECK" | grep -q "ok\|configured\|正常"; then
+    echo "  企微插件已配置 ✅"
+elif [[ "$SKIP_WECOM" != "true" ]]; then
+    echo "  企微插件未安装，尝试安装..."
+    ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'npx -y @wecom/wecom-openclaw-cli install 2>&1'" 2>/dev/null
+    WECOM_RESULT=$?
+    if [[ $WECOM_RESULT -eq 0 ]]; then
+        echo "  企微插件安装成功 ✅"
+    else
+        echo "  企微插件安装跳过（可能需要手动配置 corpId/agentId/secret）"
+    fi
+else
+    echo "  企微插件跳过"
+fi
+
+# 3. Gateway 重启
+echo ""
+echo "[3/8] Gateway 重启..."
 if [[ "$(uname)" == "Darwin" ]] || ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'uname -s'" 2>/dev/null | grep -q Darwin; then
     # macOS: 用 launchctl 或 openclaw gateway restart
     ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw gateway restart 2>&1 | tail -1'"
@@ -56,18 +76,18 @@ fi
 
 # 3. 等待启动
 echo ""
-echo "[3/7] 等待 Gateway 就绪..."
+echo "[4/8] 等待 Gateway 就绪..."
 sleep 6
 
 # 4. 状态验证
 echo ""
-echo "[4/7] 状态验证..."
+echo "[5/8] 状态验证..."
 GW_STATUS=$(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw gateway status 2>&1 | head -3'" 2>/dev/null || echo "未运行")
 echo "  Gateway: $GW_STATUS"
 
 # 5. 配置确认
 echo ""
-echo "[5/7] 配置确认..."
+echo "[6/8] 配置确认..."
 echo "  streaming: $(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.streaming'" 2>/dev/null)"
 echo "  footer.elapsed: $(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.elapsed'" 2>/dev/null)"
 echo "  footer.status: $(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw config get channels.feishu.footer.status'" 2>/dev/null)"
@@ -75,7 +95,7 @@ echo "  threadSession: $(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'openclaw con
 
 # 6. bootstrap-skills 同步
 echo ""
-echo "[6/7] bootstrap-skills 同步..."
+echo "[7/8] bootstrap-skills 同步..."
 WORKSPACE_EXISTS=$(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD '[ -d $WS_PATH ] && echo yes || echo no'" 2>/dev/null)
 if [[ "$WORKSPACE_EXISTS" != "yes" ]]; then
     echo "  workspace 目录不存在，跳过"
@@ -92,7 +112,7 @@ fi
 
 # 7. AGENTS.md 创建（重启规范）
 echo ""
-echo "[7/7] AGENTS.md 重启规范..."
+echo "[8/8] AGENTS.md 重启规范..."
 AGENTS_PATH="$WS_PATH/AGENTS.md"
 AGENTS_EXISTS=$(ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD '[ -f $AGENTS_PATH ] && echo yes || echo no'" 2>/dev/null)
 if [[ "$AGENTS_EXISTS" == "yes" ]]; then
@@ -178,3 +198,5 @@ echo "=== 配置完成 ==="
 echo "飞书机器人已就绪，可正常收发消息。"
 echo "bootstrap-skills 技能已同步。"
 echo "AGENTS.md 重启规范已创建。"
+echo ""
+echo "💡 企微插件如需安装，请手动执行：npx -y @wecom/wecom-openclaw-cli install"

@@ -1,6 +1,6 @@
 ---
 name: openclaw-remote-install
-description: 在远程 Linux 机器上安装、修复或升级 OpenClaw。支持远程安装（含 Node.js/飞书/QMD/bootstrap-skills 全自动）、远程升级（版本对比+Changelog 分析+Breaking Change 处理+回滚方案）、以及定时升级任务创建。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」「远程升级」「定时升级」。
+description: 在远程 Linux 机器上安装、修复或升级 OpenClaw。支持远程安装（含 Node.js/飞书/QMD/bootstrap-skills 全自动）、远程升级（版本对比+Changelog 分析+Breaking Change 处理+回滚方案）、以及定时升级任务创建。触发场景：用户说「在xxx机器装 OpenClaw」「远程安装 OpenClaw」「升级 OpenClaw」「修复 OpenClaw」「远程升级」「定时升级」。支持飞书和企业微信双插件安装。
 ---
 
 # openclaw-remote-install
@@ -48,6 +48,8 @@ ssh root@<HOST> 'bash -l -c "openclaw --version"'
 ⑥ 飞书频道绑定：用户手动执行 openclaw onboard
   ↓
 ⑦ 飞书插件安装：用户手动执行 npx @larksuite/openclaw-lark install（过程中自动提示扫码）
+  ↓
+⑦.5 企微插件安装（可选）：用户手动执行 npx -y @wecom/wecom-openclaw-cli install
   ↓
 ⑧ AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
   ↓
@@ -202,6 +204,19 @@ npx -y @larksuite/openclaw-lark install
 
 > ⚠️ `openclaw onboard` 需在此步骤之前完成（步骤⑥）。
 
+### ⑦.5 企微插件安装（可选）
+
+如果目标机器需要同时接入企业微信，用户在服务器终端执行：
+
+```bash
+ssh root@<HOST>
+npx -y @wecom/wecom-openclaw-cli install
+```
+
+按照提示完成企微应用配置（需要提供企业 corpId、agentId、secret 等信息）。
+
+> ⚠️ 飞书和企微插件可以同时安装，互不影响。
+
 ### ⑧ AI 执行 post-install.sh（飞书优化 + bootstrap-skills）⭐
 
 用户扫码完成后，AI 自动执行 `post-install.sh`，包含：
@@ -229,7 +244,7 @@ npx -y @larksuite/openclaw-lark install
 → QMD 自动安装（bun + @tobilu/qmd + memory.backend=qmd）
 → Gateway 安装 + 启动
 → 验证
-→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码）
+→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码），需要企微则额外跑 npx -y @wecom/wecom-openclaw-cli install
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 ```
@@ -241,7 +256,7 @@ npx -y @larksuite/openclaw-lark install
 → 直接使用 openclaw update --yes 升级
 → openclaw update 自动处理包管理器差异
 → 验证通过
-→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码）
+→ 告知用户：SSH 进服务器，先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（过程自动提示扫码），需要企微则额外跑 npx -y @wecom/wecom-openclaw-cli install
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 ```
@@ -260,7 +275,8 @@ npx -y @larksuite/openclaw-lark install
 → subagent 报告安装完成
 → 告知用户：
     步骤⑥ ssh root@HOST → openclaw onboard（选飞书频道类型）
-    步骤⑦ npx -y @larksuite/openclaw-lark install（过程中自动提示扫码，扫一下就完成）
+    步骤⑦ npx -y @larksuite/openclaw-lark install（飞书扫码即完成）
+    步骤⑦.5 npx -y @wecom/wecom-openclaw-cli install（企微，可选）
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh
 → 飞书插件配置完成
@@ -273,7 +289,7 @@ npx -y @larksuite/openclaw-lark install
 → AI 确认版本、IP
 → subagent 执行 install.sh（全自动，含 QMD）
 → AI 汇报安装完成，告知用户：
-    先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install，扫码即完成
+    先跑 openclaw onboard，再跑 npx @larksuite/openclaw-lark install（飞书扫码即完成），需要企微则额外跑 npx -y @wecom/wecom-openclaw-cli install
 → 用户扫码完成后告知 AI
 → AI 执行 post-install.sh（飞书四项优化 + bootstrap-skills 同步）
 → 全部完成
@@ -642,7 +658,7 @@ ssh $SSH_USER@$HOST 'chmod +x ~/.openclaw/scripts/scheduled-upgrade.sh'
 | `verify.sh` | `scripts/verify.sh` | 安装/升级后完整验证（8大检查项，含 doctor + 飞书 + 企微） |
 | `scheduled-upgrade.sh` | `scripts/scheduled-upgrade.sh` | 部署到目标机器的定时升级脚本 |
 | `diagnose.sh` | `scripts/diagnose.sh` | 远程机器快速诊断 |
-| `post-install.sh` | `scripts/post-install.sh` | 飞书四项优化 + bootstrap-skills 同步 + AGENTS.md 重启规范 |
+| `post-install.sh` | `scripts/post-install.sh` | 飞书四项优化 + 企微插件安装（可选） + bootstrap-skills 同步 + AGENTS.md 重启规范 |
 
 ---
 
