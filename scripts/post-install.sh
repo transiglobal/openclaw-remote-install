@@ -133,7 +133,7 @@ if [[ "$AGENTS_EXISTS" == "yes" ]]; then
 HEREDOC
 )
         # Base64 编码传输，避免所有转义问题
-        RULE_B64=$(echo "$REBOOT_RULE" | base64 -w0)
+        RULE_B64=$(printf '%s' "$REBOOT_RULE" | base64 | tr -d '\n')
         ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'echo \"$RULE_B64\" | base64 -d >> $AGENTS_PATH'" 2>/dev/null
         echo "  重启规范已追加到 AGENTS.md"
     fi
@@ -169,7 +169,7 @@ else
 使用 `openclaw gateway restart`（仅当不涉及配置变更时）。
 HEREDOC
 )
-    FULL_B64=$(echo "$FULL_AGENTS" | base64 -w0)
+    FULL_B64=$(printf '%s' "$FULL_AGENTS" | base64 | tr -d '\n')
     ssh $SSH_OPTS $SSH_USER@$HOST "$SHELL_CMD 'mkdir -p $WS_PATH && echo \"$FULL_B64\" | base64 -d > $AGENTS_PATH'" 2>/dev/null
     echo "  AGENTS.md 创建完成"
 fi
